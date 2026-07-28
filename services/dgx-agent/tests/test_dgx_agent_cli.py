@@ -1,4 +1,5 @@
 import json
+import signal
 from threading import Event
 
 import pytest
@@ -27,3 +28,19 @@ def test_run_can_stop_without_polling_work() -> None:
     stop_event.set()
 
     run_forever(stop_event)
+
+
+def test_run_stops_after_shutdown_signal(monkeypatch: pytest.MonkeyPatch) -> None:
+    registered_signals: list[int] = []
+
+    def fake_signal(signum: int, handler: object) -> object:
+        if callable(handler):
+            registered_signals.append(signum)
+            if len(registered_signals) == 2:
+                handler(signum, None)
+        return signal.SIG_DFL
+
+    monkeypatch.setattr(signal, "signal", fake_signal)
+    run_forever()
+
+    assert registered_signals == [signal.SIGINT, signal.SIGTERM]
