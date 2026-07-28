@@ -1,1 +1,64 @@
-# Repository bootstrap; initial project design is developed on a branch.
+# Secrets and local configuration
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.pyright/
+.ruff_cache/
+.venv/
+dist/
+build/
+*.egg-info/
+
+# JavaScript
+node_modules/
+.vite/
+coverage/
+playwright-report/
+test-results/
+
+# Editors and operating systems
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
+
+# Local service state
+.local/
+.cache/
+postgres-data/
+
+# Image-model artifacts: these belong on NAS, never in Git
+artifacts/
+datasets/
+models/
+outputs/
+checkpoints/
+logs/
+*.safetensors
+*.ckpt
+*.pt
+*.pth
+*.onnx
+*.gguf
+*.png
+*.jpg
+*.jpeg
+*.webp
+*.avif
+*.gif
+*.mp4
+*.webm
+
+# Explicitly allow tiny documentation assets if added intentionally
+!docs/**/*.png
+!docs/**/*.jpg
+!docs/**/*.jpeg
+!docs/**/*.webp
