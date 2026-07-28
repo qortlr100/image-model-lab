@@ -16,16 +16,16 @@ dev = [
 package = false
 
 [tool.uv.workspace]
-members = ["packages/python/*"]
+members = ["packages/python/*", "services/*"]
 
 [tool.pyright]
-include = ["packages/python"]
+include = ["packages/python", "services"]
 pythonVersion = "3.13"
 typeCheckingMode = "strict"
 
 [tool.pytest.ini_options]
 addopts = "-q"
-testpaths = ["packages/python"]
+testpaths = ["packages/python", "services"]
 
 [tool.ruff]
 line-length = 100

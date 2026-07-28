@@ -1,0 +1,17 @@
+.git
+.env
+.env.*
+.venv
+.cache
+.local
+**/__pycache__
+**/.pytest_cache
+**/.ruff_cache
+**/node_modules
+**/dist
+artifacts
+checkpoints
+datasets
+logs
+models
+outputs

@@ -26,8 +26,12 @@ test: install
     uv run pytest
     corepack pnpm test
 
+build: install
+    uv build --all-packages --out-dir dist/python
+    corepack pnpm build
+
 lock-check:
     uv lock --check
     corepack pnpm install --lockfile-only --frozen-lockfile
 
-check: lock-check format-check lint typecheck test
+check: lock-check format-check lint typecheck test build

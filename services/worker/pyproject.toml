@@ -1,0 +1,13 @@
+[project]
+name = "image-model-lab-worker"
+version = "0.1.0"
+description = "Control-plane background worker skeleton for the image model lab."
+requires-python = ">=3.13,<3.14"
+dependencies = []
+
+[project.scripts]
+image-model-lab-worker = "image_model_lab_worker.__main__:main"
+
+[build-system]
+requires = ["uv_build>=0.11.0,<0.12.0"]
+build-backend = "uv_build"

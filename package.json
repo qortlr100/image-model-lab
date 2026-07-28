@@ -9,11 +9,12 @@
     "pnpm": "11.17.0"
   },
   "scripts": {
-    "format": "prettier --write \"**/*.{js,json,mjs,ts,yaml,yml}\"",
-    "format:check": "prettier --check \"**/*.{js,json,mjs,ts,yaml,yml}\"",
-    "lint": "eslint packages/typescript --max-warnings=0",
+    "build": "corepack pnpm --recursive --if-present build",
+    "format": "prettier --write \"**/*.{css,html,js,json,mjs,ts,tsx,yaml,yml}\"",
+    "format:check": "prettier --check \"**/*.{css,html,js,json,mjs,ts,tsx,yaml,yml}\"",
+    "lint": "eslint apps packages/typescript --max-warnings=0",
     "test": "vitest run",
-    "typecheck": "tsc --noEmit -p packages/typescript/api-client/tsconfig.json"
+    "typecheck": "corepack pnpm --recursive --if-present typecheck"
   },
   "devDependencies": {
     "@eslint/js": "10.0.1",
