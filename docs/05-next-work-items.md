@@ -6,6 +6,8 @@
 
 ### M0-01 — Dual workspace와 공통 명령
 
+상태: 구현 완료
+
 범위:
 
 - root `pyproject.toml`, `uv.lock`, `pnpm-workspace.yaml`, `package.json`, lockfile

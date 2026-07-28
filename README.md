@@ -2,7 +2,7 @@
 
 개인 이미지 생성 모델 작업을 한곳에서 추적하는 모노레포입니다. 데이터셋 준비, LoRA 학습, ComfyUI 생성 결과와 평가를 하나의 재현 가능한 흐름으로 연결하는 것이 목표입니다.
 
-현재 저장소는 **초기 설계 단계**입니다. 실행 가능한 서비스는 아직 없으며, 구현 범위와 경계는 [`docs/00-scope.md`](docs/00-scope.md), 전체 구조는 [`docs/01-architecture.md`](docs/01-architecture.md)를 기준으로 합니다.
+현재 저장소는 **기반 구현 단계**입니다. 실행 가능한 서비스는 아직 없으며, 구현 범위와 경계는 [`docs/00-scope.md`](docs/00-scope.md), 전체 구조는 [`docs/01-architecture.md`](docs/01-architecture.md)를 기준으로 합니다.
 
 ## 목표
 
@@ -29,7 +29,23 @@
 - [다음 구현 작업](docs/05-next-work-items.md)
 - [아키텍처 결정 기록](docs/adr/README.md)
 
-## 계획된 모노레포 구조
+## 개발 환경
+
+필수 도구:
+
+- Python 3.13과 `uv`
+- Node.js 24와 Corepack
+- `just`
+
+고정된 lockfile만 사용해 의존성을 설치하고 전체 검사를 실행합니다.
+
+```bash
+just check
+```
+
+개별 공통 명령은 `just format`, `just lint`, `just typecheck`, `just test`입니다. `just check`는 먼저 `uv sync --frozen --all-packages`와 `pnpm install --frozen-lockfile`을 실행하므로, clean checkout에서도 별도 bootstrap 명령이 필요하지 않습니다.
+
+## 모노레포 구조
 
 ```text
 apps/
@@ -55,7 +71,7 @@ tools/
 docs/
 ```
 
-구조는 첫 구현 PR에서 생성하며, 빈 디렉터리를 보존하기 위한 placeholder는 추가하지 않습니다.
+현재 `packages/python/domain`과 `packages/typescript/api-client`가 workspace와 품질 도구를 검증하는 최소 패키지로 구현되어 있습니다. 나머지 구조는 해당 vertical slice에서 생성하며, 빈 디렉터리를 보존하기 위한 placeholder는 추가하지 않습니다.
 
 ## 라이선스 주의
 
