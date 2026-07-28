@@ -40,10 +40,12 @@
 ## Python과 JavaScript workspace
 
 - first-party Python 서비스는 Python 3.13과 [uv workspace](https://docs.astral.sh/uv/concepts/projects/workspaces/)를 사용한다.
-- Web과 생성 client는 [pnpm workspace](https://pnpm.io/workspaces)를 사용한다.
+- Web과 생성 client는 Node.js 24와 [pnpm workspace](https://pnpm.io/workspaces)를 사용한다.
 - root task runner는 `just`를 우선 사용해 `check`, `test`, `dev` 명령을 통합한다.
 - 각 service image는 필요한 workspace package만 설치한다.
 - GPU engine은 first-party workspace에 포함하지 않고 자체 lockfile 환경을 유지한다.
+
+workspace 도구 버전은 root 설정과 lockfile에 고정한다. `just check`는 `uv sync --frozen`과 `pnpm install --frozen-lockfile`부터 실행해 lockfile 누락 또는 drift를 허용하지 않는다.
 
 Python 3.13 또는 ARM64 wheel 호환성 문제가 발견되면 control plane만 3.12로 내릴 수 있다. 이 결정은 Phase 0 compatibility spike에서 lock과 container build로 검증한다.
 
