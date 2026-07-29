@@ -206,6 +206,33 @@ def test_provenance_is_never_rewritten_or_dropped() -> None:
         artifact.record_provenance("donated archive")  # type: ignore[arg-type]
 
 
+@pytest.mark.parametrize(
+    "state", [ArtifactState.PENDING, ArtifactState.AVAILABLE, ArtifactState.MISSING]
+)
+def test_an_artifact_still_in_use_takes_a_new_origin(state: ArtifactState) -> None:
+    second = ArtifactProvenance(
+        kind=ProvenanceKind.INGESTED,
+        recorded_at=datetime(2026, 8, 2, 14, 30, tzinfo=UTC),
+        source_label="donated archive, roll 4",
+    )
+
+    assert artifact_in(state).record_provenance(second).provenance == (PROVENANCE, second)
+
+
+def test_a_quarantined_artifact_takes_no_new_origin() -> None:
+    """Its bytes contradict their digest, so a fresh import is a new artifact."""
+
+    quarantined = artifact_in(ArtifactState.QUARANTINED)
+    second = ArtifactProvenance(
+        kind=ProvenanceKind.INGESTED,
+        recorded_at=datetime(2026, 8, 2, 14, 30, tzinfo=UTC),
+        source_label="donated archive, roll 4",
+    )
+
+    with pytest.raises(ArtifactError):
+        quarantined.record_provenance(second)
+
+
 def test_a_state_change_carries_the_whole_history() -> None:
     second = ArtifactProvenance(
         kind=ProvenanceKind.DERIVED,

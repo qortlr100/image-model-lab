@@ -40,6 +40,7 @@ MAX_SOURCE_LABEL_LENGTH: Final = 500
 _MACHINE_PATH: Final = re.compile(
     r"""
       (?<![A-Za-z0-9:/])/          # a POSIX absolute path, wherever it starts
+    | (?<=:)/(?!/)                 # one introduced by a colon, unlike a scheme's '://'
     | \\                           # any backslash: a Windows separator or UNC prefix
     | (?<![A-Za-z])[A-Za-z]:[\\/]  # a Windows drive, but not a URL scheme's ':/'
     | file://                      # a local path wearing a URL
@@ -48,12 +49,13 @@ _MACHINE_PATH: Final = re.compile(
 )
 """A machine path anywhere in a label, however it is introduced.
 
-``copied from /mnt/nas/inbox/a.png``, ``source=/mnt/...`` and
-``(/srv/import/a.png)`` all leak the same mount root that a bare path would,
-so a leading slash is judged by what precedes it rather than by whitespace: a
-path starts where the preceding character is not part of one.
+``copied from /mnt/nas/inbox/a.png``, ``source=/mnt/...``,
+``(/srv/import/a.png)`` and ``source:/mnt/...`` all leak the same mount root
+that a bare path would, so a leading slash is judged by what precedes it: a
+path starts where the preceding character is not part of one, and a colon
+introduces a path unless it is a scheme's ``://``.
 
-That leaves a remote URL alone. Its slashes follow a scheme's colon, another
+That leaves a remote URL alone. Its slashes follow a scheme's ``//``, another
 slash, or a hostname character, so ``https://example.org/gallery/42`` and a
 date like ``2026/07`` still describe real external sources.
 """

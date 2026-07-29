@@ -48,7 +48,9 @@
 
 `Artifact.provenance`는 bytes의 출처를 artifact 생성 시점에 기록한다. 나중에 복원할 수 없는 정보이므로 필수이며 비어 있을 수 없다. 출처 종류는 `ingested`, `derived`, `run_output`이며, 시스템 내부에서 온 것은 원본 artifact나 run attempt의 ID로 지목하고 외부에서 들어온 것은 설명 label로 남긴다. label에는 machine mount path를 쓸 수 없다. 한 machine이 파일을 어디에 뒀는지는 출처가 아니다.
 
-provenance는 한 건이 아니라 이력이다. 같은 SHA-256이 다시 들어오면 blob을 새로 쓰지 않으므로 두 번째 import는 기록될 곳이 여기밖에 없고, 같은 bytes라도 출처마다 라이선스 조건이 다를 수 있다. 이력은 append만 가능하며 기존 기록을 고치거나 지우지 않는다. 상태 전이도 이력을 그대로 옮긴다. ingest slice가 실제로 기록할 항목이 정해지면 각 기록의 형태는 한 번 더 조정될 수 있다.
+provenance는 한 건이 아니라 이력이다. 같은 SHA-256이 다시 들어오면 blob을 새로 쓰지 않으므로 두 번째 import는 기록될 곳이 여기밖에 없고, 같은 bytes라도 출처마다 라이선스 조건이 다를 수 있다. 이력은 append만 가능하며 기존 기록을 고치거나 지우지 않는다. 상태 전이도 이력을 그대로 옮긴다.
+
+단, `quarantined` artifact는 새 출처를 받지 않는다. 저장된 bytes가 자신의 digest와 어긋난 상태이므로, 새 import를 여기에 붙이면 그 import가 그 bytes를 만들었다고 주장하는 셈이 된다. 정상 사본은 새 artifact로 publish하고 기록도 그쪽에 남는다. ingest slice가 실제로 기록할 항목이 정해지면 각 기록의 형태는 한 번 더 조정될 수 있다.
 
 `logical_uri`, `sha256`, `size_bytes`, `media_type` 네 값은 `Artifact`뿐 아니라 manifest와 API 응답에서 함께 움직이므로 `ArtifactReference` value object와 versioned schema로 고정한다. URI 문법, digest 정규형, 직렬화 규칙은 [ADR-0004](adr/0004-artifact-reference-contract.md)에 있다.
 

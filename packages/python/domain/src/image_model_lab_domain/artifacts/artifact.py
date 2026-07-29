@@ -126,11 +126,21 @@ class Artifact:
         rewritten, so an artifact accumulates its sources and a licence audit
         can see all of them.
 
+        A quarantined artifact takes no new origin. Its stored bytes disagree
+        with the digest that identifies them, so recording a fresh import here
+        would claim the import produced those bytes; the good copy is
+        published as a new artifact and the record belongs there.
+
         Raises:
-            ArtifactError: if ``record`` is not an
-                :class:`ArtifactProvenance`, or is already recorded.
+            ArtifactError: if the artifact is quarantined, or if ``record`` is
+                not an :class:`ArtifactProvenance` or is already recorded.
         """
 
+        if self.state is ArtifactState.QUARANTINED:
+            raise ArtifactError(
+                "a quarantined artifact takes no new provenance; its stored bytes contradict "
+                "their digest, so a fresh import publishes a new artifact instead"
+            )
         return replace(self, provenance=(*self.provenance, record))
 
     def _become(self, target: ArtifactState) -> Artifact:
