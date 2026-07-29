@@ -80,6 +80,8 @@ def test_environment_file_is_rejected_but_the_example_is_allowed() -> None:
         "-----BEGIN OPENSSH PRIVATE KEY-----",  # repo-policy: allow-secret
         "hf_abcdefghijklmnopqrstuvwxyz0123456789",  # repo-policy: allow-secret
         'password: "hunter2hunter2"',  # repo-policy: allow-secret
+        "GITHUB_TOKEN=github_pat_11ABCDEFG0abcdefghijkl",  # repo-policy: allow-secret
+        "api_key=abcdefghijklmnop0123",  # repo-policy: allow-secret
     ],
 )
 def test_secret_like_lines_are_reported(line: str) -> None:
@@ -99,6 +101,21 @@ def test_secret_finding_reports_the_line_number() -> None:
 def test_marked_line_is_not_reported() -> None:
     content = b"AWS_ACCESS_KEY_ID=AKIAIOSFODNN7EXAMPLE  # repo-policy: allow-secret\n"
     assert repo_policy.check_file(make_file("services/api/config.py", content)) == []
+
+
+@pytest.mark.parametrize(
+    "line",
+    [
+        "password: postgres",
+        "POSTGRES_PASSWORD=${POSTGRES_PASSWORD}",
+        "token: ${{ secrets.GITHUB_TOKEN }}",
+        "api_key = os.environ['IMAGE_MODEL_LAB_API_KEY']",
+    ],
+)
+def test_short_or_indirect_values_are_not_flagged(line: str) -> None:
+    """The unquoted rule must not fire on dev defaults or secret references."""
+
+    assert repo_policy.check_file(make_file("ops/dev/compose.yaml", line.encode())) == []
 
 
 def test_ordinary_source_is_not_flagged() -> None:

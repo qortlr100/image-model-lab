@@ -50,14 +50,20 @@ SECRET_PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = (
     ("private key block", re.compile(r"-----BEGIN(?: [A-Z]+)* PRIVATE KEY-----")),
     ("AWS access key id", re.compile(r"\b(?:AKIA|ASIA)[0-9A-Z]{16}\b")),
     ("GitHub token", re.compile(r"\bgh[pousr]_[A-Za-z0-9]{36,}\b")),
+    ("GitHub fine-grained token", re.compile(r"\bgithub_pat_[A-Za-z0-9_]{20,}\b")),
     ("Hugging Face token", re.compile(r"\bhf_[A-Za-z0-9]{34,}\b")),
     ("Slack token", re.compile(r"\bxox[abprs]-[A-Za-z0-9-]{10,}\b")),
     ("provider API key", re.compile(r"\bsk-[A-Za-z0-9_-]{24,}\b")),
     (
+        # The unquoted alternative is deliberately longer than the quoted one:
+        # `password: postgres` in a dev compose file must stay clean while
+        # `GITHUB_TOKEN=<long opaque value>` must not.
         "assigned credential",
         re.compile(
-            r"(?i)\b(?:api[_-]?key|secret|password|passwd|token)\b\s*[:=]\s*"
-            r"[\"'][^\"'\s]{8,}[\"']"
+            # `GITHUB_TOKEN` is one word, so the keyword cannot be anchored
+            # with \b on the left or an underscore-prefixed name never matches.
+            r"(?i)(?:^|[^A-Za-z0-9])(?:api[_-]?key|secret|password|passwd|token)\b\s*[:=]\s*"
+            r"(?:[\"'][^\"'\s]{8,}[\"']|[A-Za-z0-9+/=_-]{16,}(?![A-Za-z0-9+/=_-]))"
         ),
     ),
 )

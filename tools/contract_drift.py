@@ -43,20 +43,32 @@ def repository_root() -> Path:
     return Path(completed.stdout.decode().strip())
 
 
-def _snapshot(
-    repo_root: Path, outputs: tuple[PurePosixPath, ...]
-) -> dict[PurePosixPath, bytes | None]:
-    snapshot: dict[PurePosixPath, bytes | None] = {}
-    for output in outputs:
-        absolute = repo_root / output
-        snapshot[output] = absolute.read_bytes() if absolute.is_file() else None
-    return snapshot
+def committed_bytes(repo_root: Path, output: PurePosixPath) -> bytes | None:
+    """Return the committed content of a path, or None when it is not committed.
+
+    The baseline has to come from the commit rather than the worktree. An
+    untracked output, or one whose regeneration is sitting unstaged, would
+    otherwise match a fresh generation and hide the fact that the committed
+    tree is missing or stale.
+    """
+
+    completed = subprocess.run(
+        ["git", "-C", str(repo_root), "show", f"HEAD:{output}"],
+        check=False,
+        capture_output=True,
+    )
+    return completed.stdout if completed.returncode == 0 else None
+
+
+def _regenerated_bytes(repo_root: Path, output: PurePosixPath) -> bytes | None:
+    absolute = repo_root / output
+    return absolute.read_bytes() if absolute.is_file() else None
 
 
 def check_contract(repo_root: Path, contract: GeneratedContract) -> list[str]:
     """Regenerate a contract and return one message per drifted or missing output."""
 
-    before = _snapshot(repo_root, contract.outputs)
+    committed = {output: committed_bytes(repo_root, output) for output in contract.outputs}
     completed = subprocess.run(
         list(contract.command), cwd=repo_root, check=False, capture_output=True
     )
@@ -66,14 +78,14 @@ def check_contract(repo_root: Path, contract: GeneratedContract) -> list[str]:
             f"{contract.name}: generator failed with exit code {completed.returncode}\n{detail}"
         ]
 
-    after = _snapshot(repo_root, contract.outputs)
     messages: list[str] = []
     for output in contract.outputs:
-        if after[output] is None:
+        regenerated = _regenerated_bytes(repo_root, output)
+        if regenerated is None:
             messages.append(f"{contract.name}: {output} was not produced by the generator")
-        elif before[output] is None:
+        elif committed[output] is None:
             messages.append(f"{contract.name}: {output} is generated but not committed")
-        elif before[output] != after[output]:
+        elif committed[output] != regenerated:
             messages.append(f"{contract.name}: {output} differs from a fresh generation")
     return messages
 
