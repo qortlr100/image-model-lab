@@ -35,13 +35,23 @@ Thumbs.db
 .cache/
 postgres-data/
 
-# Image-model artifacts: these belong on NAS, never in Git
-artifacts/
-datasets/
-models/
-outputs/
-checkpoints/
-logs/
+# Image-model artifacts: these belong on NAS, never in Git.
+# The directory patterns are anchored to the repository root on purpose. These
+# are names of domain areas too, so an unanchored pattern would silently
+# swallow source directories such as
+# packages/python/domain/src/image_model_lab_domain/artifacts/.
+# Nested paths are covered by suffix instead of by directory name: the suffix
+# patterns below, and tools/repo_policy.py, which rejects weights, media, logs
+# and key material at any depth, plus oversized files and secrets. A rule
+# keyed on a directory name would hit the same trap, since a UI or module
+# directory can legitimately be called logs/ or models/.
+/artifacts/
+/datasets/
+/models/
+/outputs/
+/checkpoints/
+/logs/
+*.log
 *.safetensors
 *.ckpt
 *.pt

@@ -47,6 +47,17 @@ def test_oversized_documentation_image_is_rejected() -> None:
     assert rules(repo_policy.check_file(file)) == {"file-size"}
 
 
+@pytest.mark.parametrize(
+    "name",
+    ["logs/train.log", "services/worker/logs/train.log", "docs/sample.log"],
+)
+def test_logs_are_rejected_anywhere(name: str) -> None:
+    """The .gitignore directory patterns are root-anchored, so a nested log
+    directory reaches the index; this rule is what stops it."""
+
+    assert rules(repo_policy.check_file(make_file(name))) == {"log-artifact"}
+
+
 def test_video_is_rejected_even_under_docs() -> None:
     assert rules(repo_policy.check_file(make_file("docs/demo.mp4"))) == {"media-artifact"}
 

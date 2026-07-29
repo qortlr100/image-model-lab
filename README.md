@@ -115,7 +115,11 @@ tools/
 docs/
 ```
 
-현재 네 service skeleton과 `packages/python/domain`, `packages/typescript/api-client`가 workspace와 품질 도구를 검증하는 최소 단위로 구현되어 있고, `tools/`에는 저장소 정책과 contract drift 검사가 있습니다. 나머지 구조는 해당 vertical slice에서 생성하며, 빈 디렉터리를 보존하기 위한 placeholder는 추가하지 않습니다.
+현재 네 service skeleton과 `packages/python/domain`, `packages/typescript/api-client`가 구현되어 있고, `tools/`에는 저장소 정책과 contract drift 검사가 있습니다. `contracts/`에는 첫 durable schema인 artifact reference와 그 fixture가 있습니다. 나머지 구조는 해당 vertical slice에서 생성하며, 빈 디렉터리를 보존하기 위한 placeholder는 추가하지 않습니다.
+
+## Artifact 참조
+
+`packages/python/domain`의 `ArtifactUri`, `Sha256Digest`, `MediaType`, `ArtifactReference`는 저장된 artifact를 가리키는 유일한 방법입니다. 주소는 `nas://<namespace>/<key>`이며 machine mount path, 경로 traversal, percent-encoding, 대문자 key는 value object 단계에서 거부됩니다. 직렬화 형태는 `schema_version`을 포함하고 [`contracts/schemas/artifact-reference-v1.schema.json`](contracts/schemas/artifact-reference-v1.schema.json)에 published schema로 있습니다. 규칙과 근거는 [ADR-0004](docs/adr/0004-artifact-reference-contract.md)를 참고하세요.
 
 ## 라이선스 주의
 
