@@ -43,7 +43,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from enum import StrEnum
 from typing import Final
-from urllib.parse import unquote
+from urllib.parse import unquote, urlsplit
 from uuid import UUID
 
 from image_model_lab_domain.artifacts.errors import ArtifactProvenanceError
@@ -144,7 +144,7 @@ Matched as whole names, never as substrings, so an ordinary ``?series=`` or
 ``?key=`` is untouched -- an S3 object key names the object, not the way in.
 """
 
-_URL_PARAMETER: Final = re.compile(r"[?&#]([^\s=&#?]+)=")
+_PARAMETER_SEPARATOR: Final = re.compile(r"[?&;]")
 
 _MACHINE_PATH: Final = re.compile(
     r"""
@@ -276,22 +276,44 @@ def _carries_credentials(url: str) -> bool:
     echoed in the error: repeating a secret to report it is how it ends up in
     a log.
 
-    The URL is split first and each part decoded after, never the other way
-    round. A reader decodes too, so ``?access%5ftoken=`` is the same parameter
-    as ``?access_token=`` and ``user%3Apass@`` the same credential as
-    ``user:pass@`` -- but decoding the whole string first would invent
-    structure that is not there: ``curator:hun%2Fter2@host`` would appear to
-    end its authority at a slash inside the password, and ``?a=b%26token=x``
-    would appear to hold a parameter a client never sends.
+    The split is a real URL split, and each component is decoded only after
+    it is separated out. Both halves of that matter. Decoding first would
+    invent structure that is not there -- ``curator:hun%2Fter2@host`` would
+    appear to end its authority at a slash inside the password. Splitting by
+    hand got the delimiters wrong instead: an authority ends at ``?`` and
+    ``#`` as well as ``/``, or the ``@`` in
+    ``https://example.org?contact=mailto:curator@example.net`` reads as
+    basic-auth in a URL that has no userinfo at all.
+
+    A token this cannot parse carries no credential to find, so it is left to
+    the checks around it rather than refused on suspicion.
     """
 
-    authority = url.partition("://")[2].partition("/")[0]
-    userinfo, at_sign, _ = authority.rpartition("@")
-    if at_sign and ":" in unquote(userinfo):
+    try:
+        parts = urlsplit(url)
+    except ValueError:
+        return False
+
+    if parts.password is not None or ":" in unquote(parts.username or ""):
         return True
-    return any(
-        unquote(name).lower() in _CREDENTIAL_PARAMETERS for name in _URL_PARAMETER.findall(url)
-    )
+    names = _parameter_names(parts.query) | _parameter_names(parts.fragment)
+    return not names.isdisjoint(_CREDENTIAL_PARAMETERS)
+
+
+def _parameter_names(component: str) -> set[str]:
+    """The decoded parameter names in a query or fragment.
+
+    The fragment is read the same way as the query because hash routing puts
+    a whole query behind the ``#``, and a signature pasted there is as durable
+    as one in front of it.
+    """
+
+    names: set[str] = set()
+    for pair in _PARAMETER_SEPARATOR.split(component):
+        name, assigned, _ = pair.partition("=")
+        if assigned:
+            names.add(unquote(name).strip().lower())
+    return names
 
 
 __all__ = ["MAX_SOURCE_LABEL_LENGTH", "ArtifactProvenance", "ProvenanceKind"]

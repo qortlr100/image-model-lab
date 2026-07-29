@@ -127,6 +127,7 @@ def test_accepts_a_label_that_describes_a_real_external_source(label: str) -> No
         "https://bucket.s3.amazonaws.com/a.png?X-Amz-Signature=6f8d0c1a4b2e&X-Amz-Expires=900",
         "https://acct.blob.core.windows.net/c/a.png?sv=2021-08-06&se=2026-08-01&sig=abc123",
         "https://storage.googleapis.com/b/a.png?X-Goog-Signature=deadbeef",
+        "https://example.org/gallery#/page/2?access_token=9f8d0c1a4b2e",
         "https://example.org/a.png?token=9f8d0c1a4b2e",
         "https://curator:hunter2@example.org/gallery/42",
         "downloaded from https://example.org/a.png?access_token=abc on request",
@@ -155,6 +156,8 @@ def test_rejects_a_source_label_carrying_a_credential(label: str) -> None:
         "https://example.org/gallery?page=2&series=negatives",
         "https://bucket.s3.amazonaws.com/a.png?key=originals/scan-012",
         "https://curator@example.org/gallery/42",
+        "https://example.org?contact=mailto:curator@example.net",
+        "https://example.org/gallery#/page/2",
     ],
 )
 def test_accepts_a_url_whose_parameters_are_not_credentials(label: str) -> None:
