@@ -1,0 +1,234 @@
+from datetime import UTC, datetime, timedelta, timezone
+from uuid import uuid4
+
+import pytest
+from image_model_lab_domain import ArtifactProvenance, ArtifactProvenanceError, ProvenanceKind
+from image_model_lab_domain.artifacts.provenance import MAX_SOURCE_LABEL_LENGTH
+
+RECORDED_AT = datetime(2026, 7, 29, 9, 0, tzinfo=UTC)
+LABEL = "inbox import, scanned negatives batch 12"
+
+
+def test_an_ingested_artifact_names_its_outside_source() -> None:
+    provenance = ArtifactProvenance(
+        kind=ProvenanceKind.INGESTED, recorded_at=RECORDED_AT, source_label=LABEL
+    )
+
+    assert provenance.kind is ProvenanceKind.INGESTED
+    assert provenance.source_label == LABEL
+    assert provenance.source_id is None
+
+
+@pytest.mark.parametrize("kind", [ProvenanceKind.DERIVED, ProvenanceKind.RUN_OUTPUT])
+def test_an_in_system_origin_is_named_by_id(kind: ProvenanceKind) -> None:
+    source_id = uuid4()
+
+    provenance = ArtifactProvenance(kind=kind, recorded_at=RECORDED_AT, source_id=source_id)
+
+    assert provenance.source_id == source_id
+    assert provenance.source_label is None
+
+
+def test_an_ingested_artifact_without_a_source_label_cannot_exist() -> None:
+    with pytest.raises(ArtifactProvenanceError):
+        ArtifactProvenance(kind=ProvenanceKind.INGESTED, recorded_at=RECORDED_AT)
+
+
+@pytest.mark.parametrize("kind", [ProvenanceKind.DERIVED, ProvenanceKind.RUN_OUTPUT])
+def test_an_in_system_origin_without_a_source_id_cannot_exist(kind: ProvenanceKind) -> None:
+    with pytest.raises(ArtifactProvenanceError):
+        ArtifactProvenance(kind=kind, recorded_at=RECORDED_AT)
+
+
+def test_rejects_claiming_both_an_in_system_parent_and_an_outside_source() -> None:
+    with pytest.raises(ArtifactProvenanceError):
+        ArtifactProvenance(
+            kind=ProvenanceKind.INGESTED,
+            recorded_at=RECORDED_AT,
+            source_id=uuid4(),
+            source_label=LABEL,
+        )
+    with pytest.raises(ArtifactProvenanceError):
+        ArtifactProvenance(
+            kind=ProvenanceKind.DERIVED,
+            recorded_at=RECORDED_AT,
+            source_id=uuid4(),
+            source_label=LABEL,
+        )
+
+
+@pytest.mark.parametrize(
+    "label",
+    [
+        "/mnt/nas/inbox/scan-012.tif",
+        "//nas-01/inbox/scan-012.tif",
+        "\\\\nas-01\\inbox\\scan-012.tif",
+        "C:\\Users\\me\\inbox\\scan-012.tif",
+        "d:/photos/inbox/scan-012.tif",
+        "copied from /mnt/nas/inbox/scan-012.tif",
+        "source C:\\Users\\me\\scan-012.tif",
+        "imported from file:///mnt/nas/inbox",
+        "scanned batch 12, staged under /srv/import",
+        "source=/mnt/nas/inbox/scan-012.tif",
+        "(/srv/import/scan-012.tif)",
+        "batch 12,/srv/import",
+        'staged at "/srv/import"',
+        "source:/mnt/nas/inbox/scan-012.tif",
+        "path:/srv/import/scan-012.tif",
+        "from https://example.org/x, staged at /srv/import",
+        "https:///mnt/nas/inbox/scan-012.tif",
+        "ftp:///srv/import/scan-012.tif",
+        "C://Users/me/scan-012.tif",
+        "d://photos/inbox/scan-012.tif",
+        "https://[/mnt/nas/inbox/scan-012.tif",
+        "https://example.org/a,staged=/mnt/nas/inbox/scan-012.tif",
+        "https://example.org/a,/mnt/nas/scan-012.tif",
+        "https://user@/mnt/nas/inbox/scan-012.tif",
+        "https://note@host@/mnt/nas/inbox/scan-012.tif",
+        "https://example.org/C:\\Users\\me\\scan-012.tif",
+        "https://example.org\\\\server\\share\\scan-012.tif",
+    ],
+)
+def test_rejects_a_machine_path_anywhere_in_the_source_label(label: str) -> None:
+    """Where one machine kept a file is not what the source was, and a path
+    buried in a sentence leaks the same mount root as a bare one."""
+
+    with pytest.raises(ArtifactProvenanceError):
+        ArtifactProvenance(
+            kind=ProvenanceKind.INGESTED, recorded_at=RECORDED_AT, source_label=label
+        )
+
+
+@pytest.mark.parametrize(
+    "label",
+    [
+        "https://example.org/gallery/42",
+        "https://example.org:8080/gallery/42",
+        "https://example.org/?next=/gallery/42",
+        "https://example.org/#/gallery/42",
+        "downloaded from https://example.org/#/gallery/42 on request",
+        "http://[::1]:8080/gallery/42",
+        "https://curator@example.org/gallery/42",
+        "commissioned artwork, delivery 2026/07",
+        "scanned negatives batch 12",
+        "photographer handoff (roll 4, frame 12)",
+    ],
+)
+def test_accepts_a_label_that_describes_a_real_external_source(label: str) -> None:
+    provenance = ArtifactProvenance(
+        kind=ProvenanceKind.INGESTED, recorded_at=RECORDED_AT, source_label=label
+    )
+
+    assert provenance.source_label == label
+
+
+@pytest.mark.parametrize(
+    "label",
+    [
+        "https://bucket.s3.amazonaws.com/a.png?X-Amz-Signature=6f8d0c1a4b2e&X-Amz-Expires=900",
+        "https://acct.blob.core.windows.net/c/a.png?sv=2021-08-06&se=2026-08-01&sig=abc123",
+        "https://storage.googleapis.com/b/a.png?X-Goog-Signature=deadbeef",
+        "https://example.org/gallery#/page/2?access_token=9f8d0c1a4b2e",
+        "https://example.org/a.png?token=9f8d0c1a4b2e",
+        "https://curator:hunter2@example.org/gallery/42",
+        "downloaded from https://example.org/a.png?access_token=abc on request",
+        "https://example.org/a.png?access%5ftoken=9f8d0c1a4b2e",
+        "https://curator%3Ahunter2@example.org/gallery/42",
+        "https://curator:hun%2Fter2@example.org/gallery/42",
+        " https://example.org/a.png?token=9f8d0c1a4b2e",
+        "https://example.org/a.png?token=9f8d0c1a4b2e\n",
+        "s" * MAX_SOURCE_LABEL_LENGTH + " https://example.org/a.png?token=9f8d0c1a4b2e",
+        "https://example.org/a.png?foo=1;token=9f8d0c1a4b2e",
+        "https:///mnt/nas/inbox/a.png?token=9f8d0c1a4b2e",
+        "https://example.org/file?bearer_token=9f8d0c1a4b2e",
+        "https://example.org/file?bearer-token=9f8d0c1a4b2e",
+        "https://example.org/file?jwt=eyJhbGciOiJIUzI1NiJ9.e30.abc",
+        "https://example.org/a?foo=1\n&token=9f8d0c1a4b2e",
+        "https://example.org/a?foo=1\t&sig=9f8d0c1a4b2e",
+        "https://example.org/file?private_token=9f8d0c1a4b2e",
+        "https://example.org/file?oauth_token=9f8d0c1a4b2e",
+        " https://[/?token=9f8d0c1a4b2e",
+    ],
+)
+def test_rejects_a_source_label_carrying_a_credential(label: str) -> None:
+    """A presigned or basic-auth URL stays usable, and provenance is durable."""
+
+    with pytest.raises(ArtifactProvenanceError) as rejection:
+        ArtifactProvenance(
+            kind=ProvenanceKind.INGESTED, recorded_at=RECORDED_AT, source_label=label
+        )
+
+    assert label not in str(rejection.value), "the error must not repeat the secret"
+
+
+@pytest.mark.parametrize(
+    "label",
+    [
+        "https://example.org/gallery?page=2&series=negatives",
+        "https://bucket.s3.amazonaws.com/a.png?key=originals/scan-012",
+        "https://curator@example.org/gallery/42",
+        "https://example.org?contact=mailto:curator@example.net",
+        "https://example.org/gallery#/page/2",
+        "https://example.org/image?st=article&se=summer&sp=2",
+        "https://例え.テスト/gallery/42",
+        "촬영 원본 모음, 2026/07 인계분",
+    ],
+)
+def test_accepts_a_url_whose_parameters_are_not_credentials(label: str) -> None:
+    provenance = ArtifactProvenance(
+        kind=ProvenanceKind.INGESTED, recorded_at=RECORDED_AT, source_label=label
+    )
+
+    assert provenance.source_label == label
+
+
+@pytest.mark.parametrize(
+    "label", ["", " ", f" {LABEL}", f"{LABEL}\n", "s" * (MAX_SOURCE_LABEL_LENGTH + 1), 1]
+)
+def test_rejects_a_source_label_that_describes_nothing(label: object) -> None:
+    with pytest.raises(ArtifactProvenanceError):
+        ArtifactProvenance(
+            kind=ProvenanceKind.INGESTED,
+            recorded_at=RECORDED_AT,
+            source_label=label,  # type: ignore[arg-type]
+        )
+
+
+def test_normalizes_the_recording_instant_to_utc() -> None:
+    elsewhere = RECORDED_AT.astimezone(timezone(timedelta(hours=9)))
+
+    provenance = ArtifactProvenance(
+        kind=ProvenanceKind.INGESTED, recorded_at=elsewhere, source_label=LABEL
+    )
+
+    assert provenance.recorded_at == RECORDED_AT
+    assert provenance.recorded_at.tzinfo is UTC
+
+
+@pytest.mark.parametrize("recorded_at", [RECORDED_AT.replace(tzinfo=None), "2026-07-29T09:00:00Z"])
+def test_rejects_a_recording_time_that_is_not_an_instant(recorded_at: object) -> None:
+    with pytest.raises(ArtifactProvenanceError):
+        ArtifactProvenance(
+            kind=ProvenanceKind.INGESTED,
+            recorded_at=recorded_at,  # type: ignore[arg-type]
+            source_label=LABEL,
+        )
+
+
+@pytest.mark.parametrize("kind", ["", "copied", "INGESTED", None])
+def test_rejects_an_origin_that_is_not_a_known_kind(kind: object) -> None:
+    with pytest.raises(ArtifactProvenanceError):
+        ArtifactProvenance(
+            kind=kind,  # type: ignore[arg-type]
+            recorded_at=RECORDED_AT,
+            source_label=LABEL,
+        )
+
+
+def test_is_immutable() -> None:
+    provenance = ArtifactProvenance(
+        kind=ProvenanceKind.INGESTED, recorded_at=RECORDED_AT, source_label=LABEL
+    )
+
+    with pytest.raises(AttributeError):
+        provenance.source_label = "something else"  # type: ignore[misc]

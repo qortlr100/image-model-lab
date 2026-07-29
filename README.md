@@ -121,6 +121,17 @@ docs/
 
 `packages/python/domain`의 `ArtifactUri`, `Sha256Digest`, `MediaType`, `ArtifactReference`는 저장된 artifact를 가리키는 유일한 방법입니다. 주소는 `nas://<namespace>/<key>`이며 machine mount path, 경로 traversal, percent-encoding, 대문자 key는 value object 단계에서 거부됩니다. 직렬화 형태는 `schema_version`을 포함하고 [`contracts/schemas/artifact-reference-v1.schema.json`](contracts/schemas/artifact-reference-v1.schema.json)에 published schema로 있습니다. 규칙과 근거는 [ADR-0004](docs/adr/0004-artifact-reference-contract.md)를 참고하세요.
 
+## 도메인 생명주기
+
+`packages/python/domain`은 `Artifact`, `ExecutionJob`, `RunAttempt`, `DatasetSnapshot`의 상태 전이를 framework 없이 강제합니다. entity는 불변이고 전이는 새 값을 돌려주므로, 이전 값을 들고 있는 호출자는 자신이 확인한 상태를 계속 읽습니다. 허용되지 않은 전이와 불변식 위반은 `DomainError` 하위 예외로 거부됩니다.
+
+- 완료된 `RunAttempt`와 sealed `DatasetSnapshot`은 다시 열리지 않습니다. 재시도는 다음 attempt, 수정은 새 snapshot입니다.
+- lease를 잃은 job은 `queued`로 돌아가고, 완료 보고가 중복 도착하면 전이가 거부됩니다. 중복인지 충돌인지는 idempotency key를 아는 use case가 판단합니다.
+- 모든 `Artifact`는 provenance를 최소 한 건 가집니다. 나중에 복원할 수 없는 정보이므로 생성 시점에 기록하고, 같은 bytes가 다른 출처로 다시 들어오면 append만 합니다. machine mount path는 출처 label이 될 수 없습니다.
+- 각 entity의 전이표는 `ARTIFACT_TRANSITIONS`처럼 공개돼 있어, test가 상태 몇 개가 아니라 표 전체와 표 밖의 모든 전이를 검사합니다.
+
+전이 규칙과 근거는 [핵심 도메인 모델](docs/02-domain-model.md)의 생명주기 절에 있습니다.
+
 ## 라이선스 주의
 
 저장소 코드의 라이선스와 외부 모델·학습 엔진·생성물의 라이선스는 별개입니다. 특히 Anima 기반 파생 모델의 사용 조건은 [CircleStone Labs Anima 모델 카드와 라이선스](https://huggingface.co/circlestone-labs/Anima)를 각 학습 실행 시점의 정확한 revision 기준으로 기록해야 합니다.
