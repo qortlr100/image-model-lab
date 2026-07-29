@@ -45,6 +45,28 @@ just check
 
 개별 공통 명령은 `just format`, `just lint`, `just typecheck`, `just test`, `just build`입니다. `just check`는 먼저 `uv sync --frozen --all-packages`와 `pnpm install --frozen-lockfile`을 실행하므로, clean checkout에서도 별도 bootstrap 명령이 필요하지 않습니다.
 
+## 검증과 저장소 정책
+
+`just check`는 저장소 정책, lockfile, 생성 contract drift, format, lint, typecheck, test, build를 순서대로 실행합니다. GitHub Actions의 `CI` workflow가 같은 명령을 CPU runner에서 실행하고, 네 service image build와 API/Worker image에 training engine dependency가 없다는 확인을 별도 job으로 수행합니다. GPU와 NAS가 필요한 검증은 CI에 넣지 않습니다.
+
+저장소 정책 검사(`tools/repo_policy.py`)는 다음을 거부합니다.
+
+- 모델 가중치와 checkpoint 확장자(`.safetensors`, `.ckpt`, `.pt`, `.onnx`, `.gguf` 등)
+- `docs/` 밖의 이미지와 모든 동영상 파일
+- 1 MiB를 넘는 추적 파일
+- `.pem`, `.key` 같은 키 자료와 `.env.example`이 아닌 환경 파일
+- 커밋된 것으로 보이는 token, 비밀번호, private key block
+
+의도적으로 남겨야 하는 한 줄에는 `repo-policy: allow-secret` 표시를 붙입니다. commit 시점에 같은 검사를 실행하려면 hook을 설치합니다.
+
+```bash
+just install-hooks   # git config core.hooksPath tools/hooks
+just policy          # 추적 파일 전체 검사
+just contract-check  # 생성 contract와 재생성 결과 비교
+```
+
+생성 contract drift 검사는 현재 `tools/contract_drift.py`의 registry가 비어 있어 확인할 대상이 없다고 보고합니다. M1-04에서 OpenAPI export와 TypeScript client 생성기를 registry에 등록하면 같은 명령이 commit된 파일과 재생성 결과를 비교합니다.
+
 ## Service skeleton
 
 개발용 최소 실행 명령은 다음과 같습니다. Worker와 DGX Agent의 `run`은 process와 종료 처리만 검증하는 idle loop이며 아직 job을 claim하지 않습니다.
@@ -93,7 +115,7 @@ tools/
 docs/
 ```
 
-현재 네 service skeleton과 `packages/python/domain`, `packages/typescript/api-client`가 workspace와 품질 도구를 검증하는 최소 단위로 구현되어 있습니다. 나머지 구조는 해당 vertical slice에서 생성하며, 빈 디렉터리를 보존하기 위한 placeholder는 추가하지 않습니다.
+현재 네 service skeleton과 `packages/python/domain`, `packages/typescript/api-client`가 workspace와 품질 도구를 검증하는 최소 단위로 구현되어 있고, `tools/`에는 저장소 정책과 contract drift 검사가 있습니다. 나머지 구조는 해당 vertical slice에서 생성하며, 빈 디렉터리를 보존하기 위한 placeholder는 추가하지 않습니다.
 
 ## 라이선스 주의
 

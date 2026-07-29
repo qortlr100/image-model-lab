@@ -85,5 +85,6 @@ Pin an engine by immutable tag plus digest or commit SHA. Never execute an unpin
 
 - Keep generated clients and schemas deterministic.
 - Stage only files in the requested scope.
+- Run `just install-hooks` once per clone so `just policy` blocks artifacts, oversized files and credentials at commit time.
 - Use concise imperative commit subjects.
 - Default to Draft PRs for multi-step work.

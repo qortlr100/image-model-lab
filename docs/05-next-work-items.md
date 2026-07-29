@@ -36,6 +36,8 @@
 
 ### M0-03 — CI와 repository policy
 
+상태: 구현 완료
+
 범위:
 
 - format/lint/type/test/build workflow

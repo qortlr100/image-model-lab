@@ -19,13 +19,14 @@ package = false
 members = ["packages/python/*", "services/*"]
 
 [tool.pyright]
-include = ["packages/python", "services"]
+include = ["packages/python", "services", "tools"]
 pythonVersion = "3.13"
 typeCheckingMode = "strict"
 
 [tool.pytest.ini_options]
 addopts = "-q"
-testpaths = ["packages/python", "services"]
+testpaths = ["packages/python", "services", "tools"]
+pythonpath = ["tools"]
 
 [tool.ruff]
 line-length = 100
