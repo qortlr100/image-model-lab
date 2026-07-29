@@ -1,8 +1,17 @@
-"""Errors raised by artifact value objects."""
+"""Errors raised by artifact value objects and by the artifact entity.
+
+The errors are flat. :class:`ArtifactError` names the entity that refused a
+value; the others name the value object that could not be parsed. Neither is
+the base of the other, so catching one never quietly catches the rest.
+"""
 
 from __future__ import annotations
 
 from image_model_lab_domain.errors import DomainError
+
+
+class ArtifactError(DomainError):
+    """An artifact entity is invalid, or its state transition is not allowed."""
 
 
 class ArtifactUriError(DomainError):
@@ -22,6 +31,7 @@ class ArtifactReferenceError(DomainError):
 
 
 __all__ = [
+    "ArtifactError",
     "ArtifactReferenceError",
     "ArtifactUriError",
     "DigestError",

@@ -68,6 +68,8 @@
 
 ### M1-02 — Domain lifecycle seed
 
+상태: 구현 완료
+
 범위:
 
 - `Artifact`, `ExecutionJob`, `RunAttempt`, `DatasetSnapshot` 최소 domain model

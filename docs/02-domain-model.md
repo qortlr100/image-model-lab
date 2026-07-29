@@ -44,7 +44,7 @@
 | `RunAttempt` | 한 번의 실제 실행 | job, agent, started/ended, outcome, input/output manifest |
 | `RunEvent` | 정규화된 진행 이벤트 | attempt, sequence, type, timestamp, payload version |
 
-`Artifact.state`는 최소 `pending`, `available`, `quarantined`, `missing`을 가진다. DB에서 참조가 사라져도 즉시 물리 삭제하지 않고 별도의 garbage collection 정책을 따른다.
+`Artifact.state`는 최소 `pending`, `available`, `quarantined`, `missing`을 가진다. DB에서 참조가 사라져도 즉시 물리 삭제하지 않고 별도의 garbage collection 정책을 따른다. 전이 규칙은 아래 [Artifact](#artifact) 생명주기에 있다.
 
 `logical_uri`, `sha256`, `size_bytes`, `media_type` 네 값은 `Artifact`뿐 아니라 manifest와 API 응답에서 함께 움직이므로 `ArtifactReference` value object와 versioned schema로 고정한다. URI 문법, digest 정규형, 직렬화 규칙은 [ADR-0004](adr/0004-artifact-reference-contract.md)에 있다.
 
@@ -101,6 +101,32 @@ Adapter는 engine 내부 Python 객체에 의존하지 않는다. 외부 checkou
 
 ## 주요 생명주기
 
+`Artifact`, `ExecutionJob`, `RunAttempt`, `DatasetSnapshot`의 아래 전이표는 `packages/python/domain`에 framework 없이 구현돼 있다. 각 entity는 불변이며 전이는 새 값을 돌려주고, 표에 없는 전이는 예외로 거부된다. 나머지 모델의 생명주기는 아직 문서로만 있다.
+
+### Artifact
+
+`pending → available`, `available → missing`, `missing → available`, 그리고 종료되지 않은 어느 상태에서든 `quarantined`.
+
+`quarantined`는 종료 상태다. digest가 artifact의 정체성이므로 bytes가 digest와 어긋나면 같은 artifact로 되돌릴 수 없고, 정상 사본은 새 artifact로 publish한다. quarantine된 row는 삭제하지 않고 garbage collection 정책의 판단 근거로 남긴다. `missing`은 종료가 아니다. repair job이 bytes를 다시 찾아 digest를 검증하면 `available`로 돌아온다.
+
+### Execution job
+
+`queued → leased → running → succeeded/failed`
+
+lease를 잃으면 `leased`와 `running`은 `queued`로 돌아가고, 다음 lease가 새 `RunAttempt`를 연다. 이미 진행된 attempt는 덮어쓰지 않는다.
+
+취소는 협조적이므로 두 단계다. `cancel_requested`가 의도를 기록하고, 해당 job으로 실행 중인 것이 없을 때 `cancelled`가 된다. 취소 요청이 전달되기 전에 끝난 작업은 산출물이 실제로 존재하므로 `succeeded` 또는 `failed`로 보고한다.
+
+같은 전이를 반복하면 거부된다. 전달은 at-least-once이므로 완료 보고가 두 번 도착할 수 있고, 중복인지 충돌인지는 job 상태와 idempotency key를 아는 use case가 판단한다.
+
+### Run attempt
+
+`running → succeeded/failed/cancelled/abandoned`
+
+attempt는 한 번만 이동하고 그 뒤로 수정되지 않는다. 재시도는 다음 번호의 새 attempt다. `abandoned`는 lease 만료나 agent 소실로 아무도 결과를 보고하지 않은 경우이며, engine이 어떻게 끝났는지 주장하지 않는다.
+
+`succeeded` attempt는 run manifest artifact를 반드시 가진다. `failed`와 `cancelled`는 부분 산출물의 manifest를 가질 수 있고, finalize한 주체가 없는 `abandoned`는 가질 수 없다.
+
 ### Caption
 
 `generated → edited → approved/rejected → superseded`
@@ -111,7 +137,9 @@ Adapter는 engine 내부 Python 객체에 의존하지 않는다. 외부 checkou
 
 `draft → validating → sealed` 또는 `draft/validating → rejected`
 
-`sealed`에서 되돌아가지 않는다. 오류 수정은 새 snapshot을 만든다.
+item 추가, 삭제, 순서 변경은 `draft`에서만 가능하다. 검증이 시작되면 검사한 목록이 그대로 봉인 대상이므로, 그 뒤의 변경은 검증되지 않은 입력을 봉인하는 셈이다.
+
+`sealed`와 `rejected`에서 되돌아가지 않는다. 오류 수정은 새 snapshot을 만든다. seal에는 그 목록을 지목하는 manifest artifact와 sealed 시각이 필요하며, canonical manifest 직렬화와 digest 계산은 use case의 일이다.
 
 ### Training run
 
