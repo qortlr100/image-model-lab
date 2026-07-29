@@ -143,6 +143,8 @@ def test_accepts_a_label_that_describes_a_real_external_source(label: str) -> No
         "https://example.org/file?bearer_token=9f8d0c1a4b2e",
         "https://example.org/file?bearer-token=9f8d0c1a4b2e",
         "https://example.org/file?jwt=eyJhbGciOiJIUzI1NiJ9.e30.abc",
+        "https://example.org/a?foo=1\n&token=9f8d0c1a4b2e",
+        "https://example.org/a?foo=1\t&sig=9f8d0c1a4b2e",
     ],
 )
 def test_rejects_a_source_label_carrying_a_credential(label: str) -> None:

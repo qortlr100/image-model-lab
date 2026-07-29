@@ -158,6 +158,15 @@ though no authority makes it a source worth lifting.
 
 _PARAMETER_SEPARATOR: Final = re.compile(r"[?&;]")
 
+_URL_IGNORED_WHITESPACE: Final = str.maketrans("", "", "\t\r\n")
+"""Characters a URL parser drops before it reads a URL.
+
+:func:`urllib.parse.urlsplit` removes tabs and newlines wherever they appear,
+so ``https://example.org/a?foo=1\\n&token=...`` is one working URL to whoever
+follows it. The credential scan removes them too, or a pasted line break in
+the middle of a URL would end the token just before its secret.
+"""
+
 _MACHINE_PATH: Final = re.compile(
     r"""
       (?<![A-Za-z0-9])/   # a POSIX absolute path: a slash that starts something
@@ -274,7 +283,7 @@ class ArtifactProvenance:
 
     @staticmethod
     def _reject_credentials(label: str) -> None:
-        for url in _URL_LIKE.findall(label):
+        for url in _URL_LIKE.findall(label.translate(_URL_IGNORED_WHITESPACE)):
             if _carries_credentials(url):
                 raise ArtifactProvenanceError(
                     "artifact provenance source label carries a credential in one of its "
