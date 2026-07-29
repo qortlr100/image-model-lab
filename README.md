@@ -127,6 +127,7 @@ docs/
 
 - 완료된 `RunAttempt`와 sealed `DatasetSnapshot`은 다시 열리지 않습니다. 재시도는 다음 attempt, 수정은 새 snapshot입니다.
 - lease를 잃은 job은 `queued`로 돌아가고, 완료 보고가 중복 도착하면 전이가 거부됩니다. 중복인지 충돌인지는 idempotency key를 아는 use case가 판단합니다.
+- 모든 `Artifact`는 provenance를 필수로 가집니다. 나중에 복원할 수 없는 정보이므로 생성 시점에 기록하며, machine mount path는 출처 label이 될 수 없습니다.
 - 각 entity의 전이표는 `ARTIFACT_TRANSITIONS`처럼 공개돼 있어, test가 상태 몇 개가 아니라 표 전체와 표 밖의 모든 전이를 검사합니다.
 
 전이 규칙과 근거는 [핵심 도메인 모델](docs/02-domain-model.md)의 생명주기 절에 있습니다.

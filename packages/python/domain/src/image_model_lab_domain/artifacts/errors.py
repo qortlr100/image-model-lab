@@ -18,6 +18,10 @@ class ArtifactUriError(DomainError):
     """A value cannot be a logical artifact URI."""
 
 
+class ArtifactProvenanceError(DomainError):
+    """An artifact provenance record cannot explain where bytes came from."""
+
+
 class DigestError(DomainError):
     """A value cannot be a SHA-256 content digest."""
 
@@ -32,6 +36,7 @@ class ArtifactReferenceError(DomainError):
 
 __all__ = [
     "ArtifactError",
+    "ArtifactProvenanceError",
     "ArtifactReferenceError",
     "ArtifactUriError",
     "DigestError",

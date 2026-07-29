@@ -8,12 +8,18 @@ from image_model_lab_domain.artifacts.artifact import (
 from image_model_lab_domain.artifacts.digest import ALGORITHM, DIGEST_LENGTH, Sha256Digest
 from image_model_lab_domain.artifacts.errors import (
     ArtifactError,
+    ArtifactProvenanceError,
     ArtifactReferenceError,
     ArtifactUriError,
     DigestError,
     MediaTypeError,
 )
 from image_model_lab_domain.artifacts.media_type import MediaType
+from image_model_lab_domain.artifacts.provenance import (
+    MAX_SOURCE_LABEL_LENGTH,
+    ArtifactProvenance,
+    ProvenanceKind,
+)
 from image_model_lab_domain.artifacts.reference import (
     SCHEMA_VERSION,
     SUPPORTED_SCHEMA_VERSIONS,
@@ -33,12 +39,15 @@ __all__ = [
     "DIGEST_LENGTH",
     "MAX_KEY_LENGTH",
     "MAX_SEGMENT_LENGTH",
+    "MAX_SOURCE_LABEL_LENGTH",
     "SCHEMA_VERSION",
     "SCHEME",
     "SUPPORTED_SCHEMA_VERSIONS",
     "Artifact",
     "ArtifactError",
     "ArtifactNamespace",
+    "ArtifactProvenance",
+    "ArtifactProvenanceError",
     "ArtifactReference",
     "ArtifactReferenceError",
     "ArtifactState",
@@ -47,5 +56,6 @@ __all__ = [
     "DigestError",
     "MediaType",
     "MediaTypeError",
+    "ProvenanceKind",
     "Sha256Digest",
 ]

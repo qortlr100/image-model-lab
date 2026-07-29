@@ -7,6 +7,8 @@ from image_model_lab_domain.artifacts import (
     Artifact,
     ArtifactError,
     ArtifactNamespace,
+    ArtifactProvenance,
+    ArtifactProvenanceError,
     ArtifactReference,
     ArtifactReferenceError,
     ArtifactState,
@@ -15,6 +17,7 @@ from image_model_lab_domain.artifacts import (
     DigestError,
     MediaType,
     MediaTypeError,
+    ProvenanceKind,
     Sha256Digest,
 )
 from image_model_lab_domain.datasets import (
@@ -49,6 +52,8 @@ __all__ = [
     "Artifact",
     "ArtifactError",
     "ArtifactNamespace",
+    "ArtifactProvenance",
+    "ArtifactProvenanceError",
     "ArtifactReference",
     "ArtifactReferenceError",
     "ArtifactState",
@@ -65,6 +70,7 @@ __all__ = [
     "ExecutionJobState",
     "MediaType",
     "MediaTypeError",
+    "ProvenanceKind",
     "RunAttempt",
     "RunAttemptError",
     "RunAttemptState",

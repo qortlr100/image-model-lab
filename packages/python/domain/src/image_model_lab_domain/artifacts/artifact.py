@@ -22,9 +22,9 @@ garbage collection policy decides on. ``missing`` is not final: a repair job
 that finds the bytes again and re-verifies the digest returns the artifact to
 ``available``.
 
-Provenance -- who wrote the bytes and from what source -- is part of this
-entity in `docs/02-domain-model.md` but is not modelled yet. It arrives with
-the ingest slice that first has something to record.
+Every artifact also records where its bytes came from. Provenance is captured
+when the artifact is created, because the writer is the only one who knows it
+and no later pass can reconstruct it.
 """
 
 from __future__ import annotations
@@ -37,6 +37,7 @@ from typing import Final
 from uuid import UUID
 
 from image_model_lab_domain.artifacts.errors import ArtifactError
+from image_model_lab_domain.artifacts.provenance import ArtifactProvenance
 from image_model_lab_domain.artifacts.reference import ArtifactReference
 from image_model_lab_domain.lifecycle import require_state, require_transition
 from image_model_lab_domain.validation import require_id, require_instance
@@ -72,10 +73,14 @@ class Artifact:
 
     Transitions return a new artifact rather than mutating this one, so a
     caller that still holds the old value keeps reading the state it checked.
+    The reference and the provenance are carried through unchanged: what the
+    bytes are and where they came from is settled when the artifact is
+    created, and only the control plane's knowledge of them moves.
     """
 
     id: UUID
     reference: ArtifactReference
+    provenance: ArtifactProvenance
     state: ArtifactState = ArtifactState.PENDING
 
     def __post_init__(self) -> None:
@@ -84,6 +89,12 @@ class Artifact:
             self.reference,
             expected=ArtifactReference,
             field="artifact reference",
+            error=ArtifactError,
+        )
+        require_instance(
+            self.provenance,
+            expected=ArtifactProvenance,
+            field="artifact provenance",
             error=ArtifactError,
         )
         object.__setattr__(

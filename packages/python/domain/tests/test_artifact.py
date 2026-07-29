@@ -1,4 +1,5 @@
 from collections.abc import Callable
+from datetime import UTC, datetime
 from uuid import UUID, uuid4
 
 import pytest
@@ -7,10 +8,12 @@ from image_model_lab_domain import (
     Artifact,
     ArtifactError,
     ArtifactNamespace,
+    ArtifactProvenance,
     ArtifactReference,
     ArtifactState,
     ArtifactUri,
     MediaType,
+    ProvenanceKind,
     Sha256Digest,
 )
 
@@ -19,6 +22,12 @@ REFERENCE = ArtifactReference(
     digest=Sha256Digest("c9002e992258426720776d39ced66f985968a16488ef7e56716c7ff8b6c425aa"),
     size_bytes=20480,
     media_type=MediaType("image/png"),
+)
+
+PROVENANCE = ArtifactProvenance(
+    kind=ProvenanceKind.INGESTED,
+    recorded_at=datetime(2026, 7, 29, 9, 0, tzinfo=UTC),
+    source_label="inbox import, scanned negatives batch 12",
 )
 
 _CHANGES: dict[str, tuple[ArtifactState, Callable[[Artifact], Artifact]]] = {
@@ -42,11 +51,11 @@ ILLEGAL = [
 
 
 def artifact_in(state: ArtifactState) -> Artifact:
-    return Artifact(id=uuid4(), reference=REFERENCE, state=state)
+    return Artifact(id=uuid4(), reference=REFERENCE, provenance=PROVENANCE, state=state)
 
 
 def test_a_new_artifact_is_pending_and_not_readable() -> None:
-    artifact = Artifact(id=uuid4(), reference=REFERENCE)
+    artifact = Artifact(id=uuid4(), reference=REFERENCE, provenance=PROVENANCE)
 
     assert artifact.state is ArtifactState.PENDING
     assert not artifact.is_readable
@@ -86,6 +95,7 @@ def test_allowed_transition_keeps_identity_and_reference(state: ArtifactState, n
     assert moved.state is target
     assert moved.id == artifact.id
     assert moved.reference == artifact.reference
+    assert moved.provenance == artifact.provenance
     assert artifact.state is state
 
 
@@ -99,7 +109,7 @@ def test_rejects_every_transition_outside_the_table(state: ArtifactState, name: 
 
 
 def test_publish_makes_verified_bytes_readable() -> None:
-    published = Artifact(id=uuid4(), reference=REFERENCE).mark_available()
+    published = Artifact(id=uuid4(), reference=REFERENCE, provenance=PROVENANCE).mark_available()
 
     assert published.state is ArtifactState.AVAILABLE
     assert published.is_readable
@@ -128,7 +138,12 @@ def test_is_immutable() -> None:
 
 
 def test_accepts_the_plain_string_spelling_of_a_state() -> None:
-    artifact = Artifact(id=uuid4(), reference=REFERENCE, state="available")  # type: ignore[arg-type]
+    artifact = Artifact(
+        id=uuid4(),
+        reference=REFERENCE,
+        provenance=PROVENANCE,
+        state="available",  # type: ignore[arg-type]
+    )
 
     assert artifact.state is ArtifactState.AVAILABLE
 
@@ -136,16 +151,29 @@ def test_accepts_the_plain_string_spelling_of_a_state() -> None:
 @pytest.mark.parametrize("state", ["", "deleted", "AVAILABLE", None, 1])
 def test_rejects_a_value_that_is_not_a_state(state: object) -> None:
     with pytest.raises(ArtifactError):
-        Artifact(id=uuid4(), reference=REFERENCE, state=state)  # type: ignore[arg-type]
+        Artifact(
+            id=uuid4(),
+            reference=REFERENCE,
+            provenance=PROVENANCE,
+            state=state,  # type: ignore[arg-type]
+        )
 
 
 @pytest.mark.parametrize("artifact_id", ["not-a-uuid", str(UUID(int=1)), 1, None])
 def test_rejects_an_identifier_that_is_not_a_uuid(artifact_id: object) -> None:
     with pytest.raises(ArtifactError):
-        Artifact(id=artifact_id, reference=REFERENCE)  # type: ignore[arg-type]
+        Artifact(id=artifact_id, reference=REFERENCE, provenance=PROVENANCE)  # type: ignore[arg-type]
 
 
 @pytest.mark.parametrize("reference", ["nas://assets/original/c9/c9002e99", None])
 def test_rejects_a_reference_that_is_not_an_artifact_reference(reference: object) -> None:
     with pytest.raises(ArtifactError):
-        Artifact(id=uuid4(), reference=reference)  # type: ignore[arg-type]
+        Artifact(id=uuid4(), reference=reference, provenance=PROVENANCE)  # type: ignore[arg-type]
+
+
+@pytest.mark.parametrize("provenance", ["inbox import", None])
+def test_an_artifact_cannot_exist_without_provenance(provenance: object) -> None:
+    """Nothing later can reconstruct where bytes came from, so it is required now."""
+
+    with pytest.raises(ArtifactError):
+        Artifact(id=uuid4(), reference=REFERENCE, provenance=provenance)  # type: ignore[arg-type]
