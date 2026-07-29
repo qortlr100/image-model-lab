@@ -160,6 +160,7 @@ def test_rejects_a_source_label_carrying_a_credential(label: str) -> None:
         "https://curator@example.org/gallery/42",
         "https://example.org?contact=mailto:curator@example.net",
         "https://example.org/gallery#/page/2",
+        "https://example.org/image?st=article&se=summer&sp=2",
     ],
 )
 def test_accepts_a_url_whose_parameters_are_not_credentials(label: str) -> None:

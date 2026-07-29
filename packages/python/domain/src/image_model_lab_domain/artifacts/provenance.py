@@ -125,23 +125,18 @@ _CREDENTIAL_PARAMETERS: Final = frozenset(
         # Google signed
         "x-goog-signature",
         "x-goog-credential",
-        # Azure shared access signatures, whose parameter names are all short
-        "se",
-        "sp",
-        "sr",
-        "ss",
-        "st",
-        "sv",
-        "spr",
-        "srt",
-        "skoid",
-        "sktid",
     }
 )
-"""Query or fragment parameter names that carry a credential.
+"""Query or fragment parameter names that carry a credential by themselves.
 
 Matched as whole names, never as substrings, so an ordinary ``?series=`` or
 ``?key=`` is untouched -- an S3 object key names the object, not the way in.
+
+Every name here is a secret on its own. An Azure shared access signature is
+covered by ``sig``, which each of its forms carries; its other fields --
+``se``, ``sp``, ``st`` and the rest -- are expiry and permission metadata that
+mean nothing without it, and they are short enough to be someone's ordinary
+parameter. ``?st=article`` is a source, not a signature.
 """
 
 _URL_LIKE: Final = re.compile(r"(?<![A-Za-z0-9])[a-z][a-z0-9+.-]*://\S+", re.IGNORECASE)
