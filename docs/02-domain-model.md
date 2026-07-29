@@ -21,13 +21,13 @@
 | `CaptionReview` | 승인 판단 | caption revision, decision, reason, reviewed_at |
 | `Dataset` | 지속되는 데이터셋 정체성 | name, intended use, license notes |
 | `DatasetSnapshot` | 봉인된 학습 입력 | dataset, schema version, manifest artifact, digest, sealed_at |
-| `SnapshotItem` | snapshot의 정확한 항목 | asset revision, caption revision, order, repeat/weight |
+| `SnapshotItem` | snapshot의 정확한 항목 | asset revision, 승인된 caption revision, order, repeat/weight |
 
 ### 불변식
 
 - `AssetRevision.sha256`는 저장된 bytes와 일치해야 한다.
 - `DuplicateCandidate`는 원본을 삭제하지 않는다.
-- snapshot item은 승인된 caption revision만 참조한다. 예외는 명시적인 override reason이 필요하다.
+- snapshot item은 승인된 caption revision만 참조한다. 예외는 없다. 승인이 필요한 caption은 override가 아니라 검수를 거친다.
 - sealed snapshot은 item 추가, 삭제, 순서 변경이 불가능하다.
 - 같은 canonical manifest는 같은 digest를 만든다.
 

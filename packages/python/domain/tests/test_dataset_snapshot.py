@@ -284,28 +284,21 @@ def test_rejects_items_that_are_not_snapshot_items(items: tuple[object, ...]) ->
         DatasetSnapshot(id=uuid4(), dataset_id=uuid4(), items=items)  # type: ignore[arg-type]
 
 
-def test_an_unapproved_caption_needs_a_stated_override_reason() -> None:
+def test_an_unapproved_caption_has_no_way_into_a_snapshot() -> None:
+    """A snapshot is sealed from approved revisions only, with no exception."""
+
     with pytest.raises(SnapshotItemError):
         SnapshotItem(asset_revision_id=uuid4(), caption_revision_id=uuid4(), caption_approved=False)
 
-    override = SnapshotItem(
-        asset_revision_id=uuid4(),
-        caption_revision_id=uuid4(),
-        caption_approved=False,
-        caption_override_reason="reviewer accepted the raw WD tags for this pose",
+
+def test_the_approval_is_recorded_rather_than_assumed() -> None:
+    """A sealed snapshot stays explainable after the caption is superseded."""
+
+    approved = SnapshotItem(
+        asset_revision_id=uuid4(), caption_revision_id=uuid4(), caption_approved=True
     )
 
-    assert override.caption_override_reason is not None
-
-
-def test_an_approved_caption_overrides_nothing() -> None:
-    with pytest.raises(SnapshotItemError):
-        SnapshotItem(
-            asset_revision_id=uuid4(),
-            caption_revision_id=uuid4(),
-            caption_approved=True,
-            caption_override_reason="there is nothing being overridden",
-        )
+    assert approved.caption_approved
 
 
 @pytest.mark.parametrize("repeats", [0, -1, True, 1.5, "2"])

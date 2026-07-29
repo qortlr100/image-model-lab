@@ -61,7 +61,7 @@ _REMOTE_URL: Final = re.compile(
     ://
     (?>(?:[^\s/@]+@)?)     # userinfo, taken atomically so a host must follow it
     (?:[^\W_]|\[[0-9A-Fa-f:.]+\])   # a host: a name in any script, or a closed IPv6
-    [^\s,;"'<>\\]*         # the rest, stopping where prose or a Windows path resumes
+    [^\s,;"'<>\\)\]}]*     # the rest, stopping where prose or a Windows path resumes
     """,
     re.VERBOSE | re.IGNORECASE,
 )
@@ -86,9 +86,11 @@ drive is, and ``C://Users/me/a.png`` is a pasted path.
 
 The URL also ends where prose resumes rather than at the next space, or
 ``https://example.org/a,staged=/mnt/nas`` would leave as one token and take
-the path with it. A comma or a quote is far likelier to be a writer's
-punctuation than part of the address, and a raw backslash is never part of
-one at all, so ``https://example.org/C:\\Users\\me\\a.png`` ends at the drive.
+the path with it. A comma, a quote or a closing bracket is far likelier to be
+a writer's punctuation than part of the address -- an opening one is left
+alone, so ``https://en.wikipedia.org/wiki/Foo_(bar)`` still lifts, minus the
+bracket that closes it. A raw backslash is never part of an address at all,
+so ``https://example.org/C:\\Users\\me\\a.png`` ends at the drive.
 
 Together these hold the property the lift depends on: what leaves the label is
 a whole remote URL, never something with a machine path inside it.
