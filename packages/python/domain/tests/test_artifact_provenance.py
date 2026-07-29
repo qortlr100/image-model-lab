@@ -133,6 +133,9 @@ def test_accepts_a_label_that_describes_a_real_external_source(label: str) -> No
         "https://example.org/a.png?access%5ftoken=9f8d0c1a4b2e",
         "https://curator%3Ahunter2@example.org/gallery/42",
         "https://curator:hun%2Fter2@example.org/gallery/42",
+        " https://example.org/a.png?token=9f8d0c1a4b2e",
+        "https://example.org/a.png?token=9f8d0c1a4b2e\n",
+        "s" * MAX_SOURCE_LABEL_LENGTH + " https://example.org/a.png?token=9f8d0c1a4b2e",
     ],
 )
 def test_rejects_a_source_label_carrying_a_credential(label: str) -> None:

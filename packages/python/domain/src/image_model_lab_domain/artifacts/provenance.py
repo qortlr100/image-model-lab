@@ -238,13 +238,27 @@ class ArtifactProvenance:
                 "origin is inside the system and is named by the source id"
             )
 
-    def _validate_label(self, label: str) -> None:
-        require_text(
+    def _validate_label(self, label: object) -> None:
+        # The credential scan runs before any other check, because every other
+        # rejection quotes the label to explain itself. A pasted URL often
+        # arrives with a stray newline, and that is enough to reach a message
+        # carrying the secret into whatever reads the error.
+        if type(label) is str:
+            self._reject_credentials(label)
+        text = require_text(
             label,
             field="artifact provenance source label",
             error=ArtifactProvenanceError,
             max_length=MAX_SOURCE_LABEL_LENGTH,
         )
+        if _MACHINE_PATH.search(_REMOTE_URL.sub(" ", text)):
+            raise ArtifactProvenanceError(
+                f"artifact provenance source label {text!r} contains a machine path; "
+                "record what the source was, not where one machine kept it"
+            )
+
+    @staticmethod
+    def _reject_credentials(label: str) -> None:
         for url in _REMOTE_URL.findall(label):
             if _carries_credentials(url):
                 raise ArtifactProvenanceError(
@@ -252,11 +266,6 @@ class ArtifactProvenance:
                     "URLs; provenance records where bytes came from, not a way back in, "
                     "and a stored signature stays usable until it expires"
                 )
-        if _MACHINE_PATH.search(_REMOTE_URL.sub(" ", label)):
-            raise ArtifactProvenanceError(
-                f"artifact provenance source label {label!r} contains a machine path; "
-                "record what the source was, not where one machine kept it"
-            )
 
 
 def _carries_credentials(url: str) -> bool:
