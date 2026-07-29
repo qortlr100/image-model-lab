@@ -35,13 +35,17 @@ Thumbs.db
 .cache/
 postgres-data/
 
-# Image-model artifacts: these belong on NAS, never in Git
-artifacts/
-datasets/
-models/
-outputs/
-checkpoints/
-logs/
+# Image-model artifacts: these belong on NAS, never in Git.
+# Anchored to the repository root on purpose. These are names of domain areas
+# too, so an unanchored pattern would silently swallow source directories such
+# as packages/python/domain/src/image_model_lab_domain/artifacts/.
+# tools/repo_policy.py is what actually rejects artifact content anywhere.
+/artifacts/
+/datasets/
+/models/
+/outputs/
+/checkpoints/
+/logs/
 *.safetensors
 *.ckpt
 *.pt

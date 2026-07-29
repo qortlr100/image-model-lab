@@ -109,6 +109,8 @@ nas://models/<model-id>/<revision-id>/
 nas://workflows/<workflow-id>/<revision-id>.json
 ```
 
+key는 배포와 무관한 생성 식별자만 사용한다. segment는 `[a-z0-9][a-z0-9._-]*`이며 절대 경로, `..`, backslash, percent-encoding, 대문자를 허용하지 않는다. 원본 파일명은 metadata로 보존하고 key로 쓰지 않는다. 문법과 근거는 [ADR-0004](adr/0004-artifact-reference-contract.md)에 있다.
+
 Artifact publish는 임시 key에 완전히 쓴 뒤 hash와 size를 검증하고 final key로 rename하는 방식으로 원자성을 확보한다. DB row 작성과 NAS rename은 단일 transaction이 아니므로 `pending → available` 상태와 repair job을 사용한다.
 
 ## 데이터 흐름

@@ -53,6 +53,8 @@
 
 ### M1-01 — Artifact URI와 digest value object
 
+상태: 구현 완료
+
 범위:
 
 - `nas://` parser/formatter

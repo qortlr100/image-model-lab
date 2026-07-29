@@ -35,7 +35,7 @@
 
 | 모델 | 역할 | 핵심 필드 |
 |---|---|---|
-| `Artifact` | NAS의 불변 객체 | logical_uri, sha256, size, media_type, state, provenance |
+| `Artifact` | NAS의 불변 객체 | logical_uri, sha256, size_bytes, media_type, state, provenance |
 | `Model` | base model 또는 adapter의 논리 정체성 | kind, name, provider, license reference |
 | `ModelRevision` | 실제 가중치 revision | model, artifact, upstream revision, format |
 | `ExecutionJob` | 예약 가능한 명령 | kind, requirements, priority, idempotency key, state |
@@ -45,6 +45,8 @@
 | `RunEvent` | 정규화된 진행 이벤트 | attempt, sequence, type, timestamp, payload version |
 
 `Artifact.state`는 최소 `pending`, `available`, `quarantined`, `missing`을 가진다. DB에서 참조가 사라져도 즉시 물리 삭제하지 않고 별도의 garbage collection 정책을 따른다.
+
+`logical_uri`, `sha256`, `size_bytes`, `media_type` 네 값은 `Artifact`뿐 아니라 manifest와 API 응답에서 함께 움직이므로 `ArtifactReference` value object와 versioned schema로 고정한다. URI 문법, digest 정규형, 직렬화 규칙은 [ADR-0004](adr/0004-artifact-reference-contract.md)에 있다.
 
 ## 학습 영역
 
