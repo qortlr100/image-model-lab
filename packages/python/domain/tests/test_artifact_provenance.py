@@ -75,6 +75,7 @@ def test_rejects_claiming_both_an_in_system_parent_and_an_outside_source() -> No
         'staged at "/srv/import"',
         "source:/mnt/nas/inbox/scan-012.tif",
         "path:/srv/import/scan-012.tif",
+        "from https://example.org/x, staged at /srv/import",
     ],
 )
 def test_rejects_a_machine_path_anywhere_in_the_source_label(label: str) -> None:
@@ -92,6 +93,9 @@ def test_rejects_a_machine_path_anywhere_in_the_source_label(label: str) -> None
     [
         "https://example.org/gallery/42",
         "https://example.org:8080/gallery/42",
+        "https://example.org/?next=/gallery/42",
+        "https://example.org/#/gallery/42",
+        "downloaded from https://example.org/#/gallery/42 on request",
         "commissioned artwork, delivery 2026/07",
         "scanned negatives batch 12",
         "photographer handoff (roll 4, frame 12)",

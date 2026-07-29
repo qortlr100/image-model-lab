@@ -18,7 +18,17 @@ A machine path anywhere in a label is refused, however it is introduced,
 because ``copied from /mnt/nas/inbox/a.png`` and ``source=/mnt/...`` leak the
 same mount root that a bare path would. Where a file happened to sit on one
 machine is not what the source was, and a mount path must not reach the
-domain or the database. A remote URL is still a usable label.
+domain or the database.
+
+A remote URL is a legitimate source, and its own syntax looks like a path, so
+a label's URLs are lifted out before the rest is scanned. That keeps the scan
+strict without it having to know anything about URLs -- and a label mixing
+both, such as ``from https://example.org/x, staged at /srv/import``, is still
+refused for the part that is a path.
+
+None of this makes the check a boundary: a caller determined to write a path
+in prose can. It catches the mistake that actually happens, which is pasting
+one in.
 """
 
 from __future__ import annotations
@@ -37,27 +47,36 @@ from image_model_lab_domain.validation import require_id, require_instant, requi
 MAX_SOURCE_LABEL_LENGTH: Final = 500
 """Maximum length of an ingest source label, in characters."""
 
+_REMOTE_URL: Final = re.compile(
+    r"(?<![A-Za-z0-9])(?!file://)[a-z][a-z0-9+.-]*://\S+", re.IGNORECASE
+)
+"""One whole remote URL token, which a label may name a source by.
+
+A URL's own syntax -- ``?next=/gallery``, ``#/gallery``, a port, a rooted path
+-- reads like a machine path to any scan short of a URL parser, so a URL is
+lifted out of the label before the scan rather than exempted case by case
+inside it. ``file://`` is deliberately not lifted: that is a local path
+wearing a URL, and the scan should see it.
+
+The scheme has to start a token, or ``file:///mnt/nas`` would be lifted as
+the URL ``ile:///mnt/nas`` and take the path out of the scan with it.
+"""
+
 _MACHINE_PATH: Final = re.compile(
     r"""
-      (?<![A-Za-z0-9:/])/          # a POSIX absolute path, wherever it starts
-    | (?<=:)/(?!/)                 # one introduced by a colon, unlike a scheme's '://'
-    | \\                           # any backslash: a Windows separator or UNC prefix
-    | (?<![A-Za-z])[A-Za-z]:[\\/]  # a Windows drive, but not a URL scheme's ':/'
-    | file://                      # a local path wearing a URL
+      (?<![A-Za-z0-9])/   # a POSIX absolute path: a slash that starts something
+    | \\                  # any backslash: a Windows separator or a UNC prefix
+    | [A-Za-z]:[\\/]      # a Windows drive
+    | file://             # a local path wearing a URL
     """,
     re.VERBOSE | re.IGNORECASE,
 )
-"""A machine path anywhere in a label, however it is introduced.
+"""A machine path in what is left of a label once its URLs are lifted out.
 
 ``copied from /mnt/nas/inbox/a.png``, ``source=/mnt/...``,
-``(/srv/import/a.png)`` and ``source:/mnt/...`` all leak the same mount root
-that a bare path would, so a leading slash is judged by what precedes it: a
-path starts where the preceding character is not part of one, and a colon
-introduces a path unless it is a scheme's ``://``.
-
-That leaves a remote URL alone. Its slashes follow a scheme's ``//``, another
-slash, or a hostname character, so ``https://example.org/gallery/42`` and a
-date like ``2026/07`` still describe real external sources.
+``(/srv/import/a.png)`` and ``source:/mnt/...`` all leak the same mount root a
+bare path would, so a slash starts a path unless it continues a word. That
+still leaves ``2026/07`` and ``roll 4/12`` usable as labels.
 """
 
 
@@ -142,7 +161,7 @@ class ArtifactProvenance:
             error=ArtifactProvenanceError,
             max_length=MAX_SOURCE_LABEL_LENGTH,
         )
-        if _MACHINE_PATH.search(label):
+        if _MACHINE_PATH.search(_REMOTE_URL.sub(" ", label)):
             raise ArtifactProvenanceError(
                 f"artifact provenance source label {label!r} contains a machine path; "
                 "record what the source was, not where one machine kept it"
