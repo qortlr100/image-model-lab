@@ -46,4 +46,17 @@ contract-check:
 install-hooks:
     git config core.hooksPath tools/hooks
 
+# Start the local development PostgreSQL.
+db-up:
+    docker compose -f ops/dev/compose.yaml up --detach --wait
+
+# Stop it, keeping the volume so the data survives.
+db-down:
+    docker compose -f ops/dev/compose.yaml down
+
+# Run an Alembic command, for example `just migrate upgrade head`.
+# IMAGE_MODEL_LAB_DATABASE_URL names the database it acts on.
+migrate *args: install
+    uv run alembic -c packages/python/persistence/src/image_model_lab_persistence/alembic.ini {{ args }}
+
 check: policy lock-check contract-check format-check lint typecheck test build

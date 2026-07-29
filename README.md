@@ -115,7 +115,7 @@ tools/
 docs/
 ```
 
-현재 네 service skeleton과 `packages/python/domain`, `packages/typescript/api-client`가 구현되어 있고, `tools/`에는 저장소 정책과 contract drift 검사가 있습니다. `contracts/`에는 첫 durable schema인 artifact reference와 그 fixture가 있습니다. 나머지 구조는 해당 vertical slice에서 생성하며, 빈 디렉터리를 보존하기 위한 placeholder는 추가하지 않습니다.
+현재 네 service skeleton과 `packages/python/domain`, `packages/python/application`, `packages/python/persistence`, `packages/typescript/api-client`가 구현되어 있고, `tools/`에는 저장소 정책과 contract drift 검사가 있습니다. `contracts/`에는 첫 durable schema인 artifact reference와 그 fixture가, `ops/dev/`에는 개발용 PostgreSQL compose 파일이 있습니다. 나머지 구조는 해당 vertical slice에서 생성하며, 빈 디렉터리를 보존하기 위한 placeholder는 추가하지 않습니다.
 
 ## Artifact 참조
 
@@ -131,6 +131,42 @@ docs/
 - 각 entity의 전이표는 `ARTIFACT_TRANSITIONS`처럼 공개돼 있어, test가 상태 몇 개가 아니라 표 전체와 표 밖의 모든 전이를 검사합니다.
 
 전이 규칙과 근거는 [핵심 도메인 모델](docs/02-domain-model.md)의 생명주기 절에 있습니다.
+
+## 메타데이터 저장
+
+`packages/python/application`은 use case가 저장소에 요구하는 것을 `Protocol` port로 선언하고, `packages/python/persistence`가 PostgreSQL adapter로 구현합니다. SQLAlchemy와 Alembic은 이 package와 service composition root 밖에 나타나지 않으며, domain package가 framework를 import하지 않는다는 사실은 allowlist 기반 import 검사가 강제합니다.
+
+- 생명주기를 가진 네 entity(`Artifact`, `ExecutionJob`, `RunAttempt`, `DatasetSnapshot`)와 순서를 가진 두 child table(artifact provenance, snapshot item)이 mapping되어 있습니다.
+- domain entity는 그대로 mapping되지 않고 별도 row class와 명시적 변환을 거칩니다. 읽기는 entity 생성자를 다시 통과하므로 불변식을 어긴 row는 읽는 시점에 거부됩니다.
+- repository는 aggregate 단위로 write하고 commit하지 않습니다. transaction 경계는 composition root가 소유합니다.
+- 완료된 `RunAttempt`, sealed/rejected `DatasetSnapshot`, 이미 기록된 artifact provenance는 update 경로에서 거부됩니다.
+- 상태 column의 허용 값과 column 폭은 domain 상수에서 생성되고, 배포된 CHECK 제약이 domain enum과 일치하는지는 live database를 읽는 test가 검사합니다.
+
+근거와 대안은 [ADR-0005](docs/adr/0005-relational-mapping-and-repository-boundary.md)에 있습니다.
+
+### 개발용 데이터베이스와 마이그레이션
+
+```bash
+just db-up                                   # ops/dev/compose.yaml의 PostgreSQL 기동
+export IMAGE_MODEL_LAB_DATABASE_URL=postgresql+psycopg://postgres:postgres@127.0.0.1:5432/image_model_lab
+just migrate upgrade head
+just migrate downgrade base
+just db-down
+```
+
+`IMAGE_MODEL_LAB_DATABASE_URL`은 모든 service와 migration runner가 읽는 유일한 설정 지점이며, PostgreSQL 이외의 backend는 거부됩니다. Alembic 설정과 revision은 package 안에 있으므로 service image가 자신의 schema를 올릴 수 있습니다.
+
+### Persistence integration test
+
+repository와 migration test는 database를 만들고 지울 수 있는 PostgreSQL server를 요구합니다. server 위치는 `IMAGE_MODEL_LAB_TEST_DATABASE_URL`로 전달하며, 각 test 실행은 고유한 이름의 database를 만들고 끝나면 지웁니다.
+
+```bash
+just db-up
+IMAGE_MODEL_LAB_TEST_DATABASE_URL=postgresql+psycopg://postgres:postgres@127.0.0.1:5432/postgres \
+  uv run pytest packages/python/persistence
+```
+
+변수가 없으면 해당 test는 이유와 함께 skip되므로 `just check`는 database 없이도 성공합니다. CI는 PostgreSQL service container를 붙인 별도 job에서 실제로 실행하고, 그 job은 `IMAGE_MODEL_LAB_REQUIRE_DATABASE=1`을 설정해 skip을 실패로 취급합니다.
 
 ## 라이선스 주의
 
