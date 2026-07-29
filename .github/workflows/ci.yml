@@ -1,0 +1,88 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  COREPACK_ENABLE_DOWNLOAD_PROMPT: "0"
+
+jobs:
+  repository-policy:
+    name: Repository policy
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version-file: .python-version
+      # No dependency install: this check must also run from a bare checkout
+      # and from the pre-commit hook.
+      - name: Reject artifacts, oversized files and credentials
+        run: python tools/repo_policy.py
+
+  workspace-check:
+    name: Format, lint, typecheck, test, build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version-file: .python-version
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+      - name: Enable Corepack
+        run: corepack enable
+      # uv and just come from PyPI at pinned versions rather than from a
+      # third-party setup action. The uv pin matches the service Dockerfiles.
+      - name: Install pinned uv and just
+        run: python -m pip install --disable-pip-version-check uv==0.11.29 rust-just==1.57.0
+      - name: Install locked dependencies
+        run: just install
+      # `just check` also runs the repository policy and the generated contract
+      # drift check, so a drifted contract fails here once M1-04 registers one.
+      - name: Run the repository-wide check
+        run: just check
+
+  service-images:
+    name: Image (${{ matrix.service }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - service: web
+            dockerfile: apps/web/Dockerfile
+            engine_free: false
+          - service: api
+            dockerfile: services/api/Dockerfile
+            engine_free: true
+          - service: worker
+            dockerfile: services/worker/Dockerfile
+            engine_free: true
+          - service: dgx-agent
+            dockerfile: services/dgx-agent/Dockerfile
+            engine_free: false
+    steps:
+      - uses: actions/checkout@v7
+      - name: Build the image
+        run: |
+          docker build \
+            --file "${{ matrix.dockerfile }}" \
+            --tag "image-model-lab-${{ matrix.service }}:ci" \
+            .
+      - name: Assert the control-plane image has no training engine dependency
+        if: matrix.engine_free
+        run: |
+          docker run --rm --interactive "image-model-lab-${{ matrix.service }}:ci" \
+            python - < tools/assert_no_engine_dependency.py
