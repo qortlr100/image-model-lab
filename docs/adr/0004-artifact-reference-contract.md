@@ -27,6 +27,7 @@ ADR-0002는 metadata를 PostgreSQL에, artifact를 NAS에 두고 DB에는 `nas:/
 - ingest는 원본 파일명을 key로 쓰지 못하고 SHA-256이나 UUID 같은 생성 식별자로 매핑해야 한다. 원본 이름은 metadata로 보존한다.
 - 문법을 넓히는 변경은 기존 값을 그대로 두지만, 좁히는 변경은 새 schema version과 migration을 요구한다.
 - schema, fixture, domain code가 같은 fixture로 함께 검증되므로 셋 중 하나만 바뀌면 test가 실패한다.
+- reader와 schema가 모두 엄격하므로 field 추가는 optional이어도 새 version이다. 이미 저장된 manifest를 읽는 옛 reader가 모르는 key를 거부하기 때문이다.
 
 ## Alternatives
 

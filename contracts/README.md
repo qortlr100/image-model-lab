@@ -17,7 +17,13 @@ NAS, execution protocol payloads and the artifact references embedded in both.
 - A breaking change adds a new version file rather than editing the old one.
   Readers accept the current version and at least one preceding version while
   stored payloads are migrated.
-- Additive, optional-only changes may edit the current version in place.
+- Adding a field is a new version too, even an optional one. The schemas set
+  `additionalProperties: false` and the readers refuse unknown keys, so an
+  older consumer reading a durable manifest would reject a payload carrying a
+  field it does not know about.
+- An in-place edit of the current version is limited to changes that invalidate
+  no payload a writer has produced: rewording a `description`, or tightening a
+  constraint to match a rule the writer already enforces.
 
 The API OpenAPI document is generated from the service and is not stored here;
 it is the source for the generated TypeScript client.

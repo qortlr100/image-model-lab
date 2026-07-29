@@ -39,6 +39,8 @@ IMAGE_SUFFIXES = frozenset(
 )
 VIDEO_SUFFIXES = frozenset({".avi", ".mkv", ".mov", ".mp4", ".webm"})
 CREDENTIAL_SUFFIXES = frozenset({".jks", ".key", ".p12", ".pem", ".pfx"})
+LOG_SUFFIXES = frozenset({".log"})
+"""Run and engine logs are execution evidence; they belong on NAS."""
 
 DOCUMENTATION_ROOT = "docs"
 """Small illustrative assets are allowed here; the size rule still applies."""
@@ -189,6 +191,14 @@ def _check_path(file: RepositoryFile) -> list[Finding]:
             )
         )
 
+    if suffix in LOG_SUFFIXES:
+        findings.append(
+            Finding(
+                file.path,
+                "log-artifact",
+                f"log files ({suffix}) are run evidence and belong on NAS, not in Git",
+            )
+        )
     if suffix in CREDENTIAL_SUFFIXES:
         findings.append(
             Finding(
