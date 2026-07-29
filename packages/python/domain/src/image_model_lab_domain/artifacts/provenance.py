@@ -60,7 +60,7 @@ _REMOTE_URL: Final = re.compile(
     [a-z][a-z0-9+.-]+      # a scheme, never the single letter of a drive
     ://
     (?>(?:[^\s/@]+@)?)     # userinfo, taken atomically so a host must follow it
-    (?:[A-Za-z0-9]|\[[0-9A-Fa-f:.]+\])   # a host: a name, or a closed IPv6 literal
+    (?:[^\W_]|\[[0-9A-Fa-f:.]+\])   # a host: a name in any script, or a closed IPv6
     [^\s,;"'<>\\]*         # the rest, stopping where prose or a Windows path resumes
     """,
     re.VERBOSE | re.IGNORECASE,
@@ -112,8 +112,12 @@ _CREDENTIAL_PARAMETERS: Final = frozenset(
         "credentials",
         "id_token",
         "jwt",
+        "oauth_token",
+        "oauth_token_secret",
         "password",
         "passwd",
+        "personal_access_token",
+        "private_token",
         "pwd",
         "refresh_token",
         "secret",
@@ -169,7 +173,7 @@ the middle of a URL would end the token just before its secret.
 
 _MACHINE_PATH: Final = re.compile(
     r"""
-      (?<![A-Za-z0-9])/   # a POSIX absolute path: a slash that starts something
+      (?<![^\W_])/        # a POSIX absolute path: a slash that starts something
     | \\                  # any backslash: a Windows separator or a UNC prefix
     | [A-Za-z]:[\\/]      # a Windows drive
     | file://             # a local path wearing a URL
@@ -182,6 +186,9 @@ _MACHINE_PATH: Final = re.compile(
 ``(/srv/import/a.png)`` and ``source:/mnt/...`` all leak the same mount root a
 bare path would, so a slash starts a path unless it continues a word. That
 still leaves ``2026/07`` and ``roll 4/12`` usable as labels.
+
+A word here is a letter or digit in any script, not only ASCII, or a label
+written in Japanese or Korean would have every slash read as a path.
 """
 
 
@@ -266,6 +273,13 @@ class ArtifactProvenance:
         # carrying the secret into whatever reads the error.
         if type(label) is str:
             self._reject_credentials(label)
+            if label != label.strip():
+                # Said without the value, unlike require_text's own wording:
+                # a label that reached here held no credential this code could
+                # recognise, which is not the same as holding none.
+                raise ArtifactProvenanceError(
+                    "artifact provenance source label must not start or end with whitespace"
+                )
         text = require_text(
             label,
             field="artifact provenance source label",
@@ -336,7 +350,9 @@ def _carries_credentials(url: str) -> bool:
     try:
         parts = urlsplit(url)
     except ValueError:
-        return False
+        # Unparseable, but its text can still hold a secret, and something
+        # further on would quote it while explaining a different complaint.
+        return not _parameter_names(url).isdisjoint(_CREDENTIAL_PARAMETERS)
 
     if parts.password is not None or ":" in unquote(parts.username or ""):
         return True

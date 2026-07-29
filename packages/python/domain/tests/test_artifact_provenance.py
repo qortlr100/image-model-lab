@@ -145,6 +145,9 @@ def test_accepts_a_label_that_describes_a_real_external_source(label: str) -> No
         "https://example.org/file?jwt=eyJhbGciOiJIUzI1NiJ9.e30.abc",
         "https://example.org/a?foo=1\n&token=9f8d0c1a4b2e",
         "https://example.org/a?foo=1\t&sig=9f8d0c1a4b2e",
+        "https://example.org/file?private_token=9f8d0c1a4b2e",
+        "https://example.org/file?oauth_token=9f8d0c1a4b2e",
+        " https://[/?token=9f8d0c1a4b2e",
     ],
 )
 def test_rejects_a_source_label_carrying_a_credential(label: str) -> None:
@@ -167,6 +170,8 @@ def test_rejects_a_source_label_carrying_a_credential(label: str) -> None:
         "https://example.org?contact=mailto:curator@example.net",
         "https://example.org/gallery#/page/2",
         "https://example.org/image?st=article&se=summer&sp=2",
+        "https://例え.テスト/gallery/42",
+        "촬영 원본 모음, 2026/07 인계분",
     ],
 )
 def test_accepts_a_url_whose_parameters_are_not_credentials(label: str) -> None:
