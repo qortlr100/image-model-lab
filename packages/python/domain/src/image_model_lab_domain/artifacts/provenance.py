@@ -53,7 +53,8 @@ _REMOTE_URL: Final = re.compile(
     (?!file://)            # a local path wearing a URL is not lifted
     [a-z][a-z0-9+.-]+      # a scheme, never the single letter of a drive
     ://
-    (?:[A-Za-z0-9]|\[[0-9A-Fa-f:.]+\])   # a host: name, userinfo, closed IPv6
+    (?>(?:[^\s/@]+@)?)     # userinfo, taken atomically so a host must follow it
+    (?:[A-Za-z0-9]|\[[0-9A-Fa-f:.]+\])   # a host: a name, or a closed IPv6 literal
     [^\s,;"'<>]*           # the rest of the URL, stopping where prose resumes
     """,
     re.VERBOSE | re.IGNORECASE,
@@ -70,10 +71,12 @@ Three things keep the lift from becoming a way to smuggle a path past the
 scan. The scheme has to start a token, or ``file:///mnt/nas`` would be lifted
 as the URL ``ile:///mnt/nas``. A host has to follow ``://``, or
 ``https:///mnt/nas`` would be lifted as a URL whose whole content is a machine
-path; a hostname or userinfo satisfies that, and so does an IPv6 literal whose
-bracket actually closes, or ``https://[/mnt/nas`` would qualify on the bracket
-alone. And the scheme has to be at least two characters: no real scheme is one
-letter, every Windows drive is, and ``C://Users/me/a.png`` is a pasted path.
+path. That host is a name or an IPv6 literal whose bracket actually closes, or
+``https://[/mnt/nas`` would qualify on the bracket alone, and any userinfo is
+taken atomically so a host still has to follow it -- otherwise
+``https://user@/mnt/nas`` would match with ``u`` as its host. And the scheme
+has to be at least two characters: no real scheme is one letter, every Windows
+drive is, and ``C://Users/me/a.png`` is a pasted path.
 
 The URL also ends where prose resumes rather than at the next space, or
 ``https://example.org/a,staged=/mnt/nas`` would leave as one token and take
