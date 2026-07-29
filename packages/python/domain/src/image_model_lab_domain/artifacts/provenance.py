@@ -14,9 +14,11 @@ a different reference:
 * ``derived`` -- produced from another artifact, named by that artifact's id;
 * ``run_output`` -- written by one execution, named by that run attempt's id.
 
-An absolute path is refused as a label. Where a file happened to sit on one
-machine is not what the source was, and a mount path must not reach the
-domain or the database.
+A machine path anywhere in a label is refused, not only one the label starts
+with, because ``copied from /mnt/nas/inbox/a.png`` leaks the same mount root
+that a bare path would. Where a file happened to sit on one machine is not
+what the source was, and a mount path must not reach the domain or the
+database. A remote URL is still a usable label.
 """
 
 from __future__ import annotations
@@ -35,7 +37,21 @@ from image_model_lab_domain.validation import require_id, require_instant, requi
 MAX_SOURCE_LABEL_LENGTH: Final = 500
 """Maximum length of an ingest source label, in characters."""
 
-_MACHINE_PATH: Final = re.compile(r"(/|\\|[A-Za-z]:[\\/])")
+_MACHINE_PATH: Final = re.compile(
+    r"""
+      (?:^|\s)/                    # a POSIX absolute path, alone or inside a sentence
+    | \\                           # any backslash: a Windows separator or UNC prefix
+    | (?<![A-Za-z])[A-Za-z]:[\\/]  # a Windows drive, but not a URL scheme's ':/'
+    | file://                      # a local path wearing a URL
+    """,
+    re.VERBOSE | re.IGNORECASE,
+)
+"""A machine path anywhere in a label, not only at its start.
+
+``copied from /mnt/nas/inbox/a.png`` leaks the same mount root that a bare
+path would. A remote URL is left alone: its slashes never follow whitespace,
+so ``https://example.org/gallery/42`` still describes a real external source.
+"""
 
 
 class ProvenanceKind(StrEnum):
@@ -119,9 +135,9 @@ class ArtifactProvenance:
             error=ArtifactProvenanceError,
             max_length=MAX_SOURCE_LABEL_LENGTH,
         )
-        if _MACHINE_PATH.match(label):
+        if _MACHINE_PATH.search(label):
             raise ArtifactProvenanceError(
-                f"artifact provenance source label {label!r} starts with a machine path; "
+                f"artifact provenance source label {label!r} contains a machine path; "
                 "record what the source was, not where one machine kept it"
             )
 

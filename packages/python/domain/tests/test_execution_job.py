@@ -133,32 +133,36 @@ def test_cancellation_is_two_step_and_cooperative_once_an_agent_holds_the_job() 
     assert requested.mark_cancelled().state is ExecutionJobState.CANCELLED
 
 
-def test_a_queued_job_is_cancelled_outright() -> None:
-    """Nobody holds it, so there is nothing to cooperate with."""
+@pytest.mark.parametrize("state", [ExecutionJobState.QUEUED, ExecutionJobState.LEASED])
+def test_a_job_nothing_is_executing_is_cancelled_outright(state: ExecutionJobState) -> None:
+    """No engine is known to be running, so there is nothing to wait for."""
 
-    cancelled = job_in(ExecutionJobState.QUEUED).cancel()
+    cancelled = job_in(state).cancel()
 
     assert cancelled.state is ExecutionJobState.CANCELLED
     assert cancelled.is_terminal
 
 
-@pytest.mark.parametrize("state", [ExecutionJobState.LEASED, ExecutionJobState.RUNNING])
-def test_cancelling_a_held_job_records_the_request(state: ExecutionJobState) -> None:
-    assert job_in(state).cancel().state is ExecutionJobState.CANCEL_REQUESTED
+def test_cancelling_a_running_job_records_the_request() -> None:
+    assert job_in(ExecutionJobState.RUNNING).cancel().state is ExecutionJobState.CANCEL_REQUESTED
 
 
-def test_a_job_that_never_ran_cannot_report_an_execution_outcome() -> None:
-    """A queued job never reaches cancel_requested, the one state an outcome
-    can follow without the job having run."""
+@pytest.mark.parametrize("state", [ExecutionJobState.QUEUED, ExecutionJobState.LEASED])
+def test_a_job_never_reported_as_running_cannot_report_an_execution_outcome(
+    state: ExecutionJobState,
+) -> None:
+    """cancel_requested is the one state an outcome can follow without a fresh
+    report of execution, so only a running job may enter it."""
 
-    cancelled = job_in(ExecutionJobState.QUEUED).cancel()
+    with pytest.raises(ExecutionJobError):
+        job_in(state).request_cancellation()
+
+    cancelled = job_in(state).cancel()
 
     with pytest.raises(ExecutionJobError):
         cancelled.mark_succeeded()
     with pytest.raises(ExecutionJobError):
         cancelled.mark_failed()
-    with pytest.raises(ExecutionJobError):
-        job_in(ExecutionJobState.QUEUED).request_cancellation()
 
 
 def test_a_job_that_finished_before_the_cancellation_landed_still_reports_its_outcome() -> None:

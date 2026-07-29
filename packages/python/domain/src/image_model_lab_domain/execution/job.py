@@ -15,15 +15,22 @@ The lifecycle assumes at-least-once delivery in both directions:
   caller's decision, made from the job's current state and its idempotency
   key, not something the entity can guess.
 
-Cancelling depends on who holds the job. A queued job has no agent to
-cooperate with, so it is cancelled outright. Once an agent holds it,
-cancellation is cooperative and therefore two-step: ``cancel_requested``
-records the intent, and the job reaches ``cancelled`` when nothing is running
-for it any more. A job that finishes before the request is noticed still
-reports ``succeeded`` or ``failed``, because the work did happen and its
-outputs exist -- and that is exactly why a queued job never passes through
-``cancel_requested``. An outcome must not be reportable for work that was
-never handed to anyone.
+Cancelling depends on whether anything is known to be executing. A job that
+has not reached ``running`` -- queued, or leased by an agent that has not
+reported launching anything -- is cancelled outright; there is no engine whose
+shutdown anyone has to wait for. If the agent had in fact just launched one,
+it learns the job is cancelled at its next report and stops, and whatever the
+engine produced stays on that attempt.
+
+Only a ``running`` job takes the cooperative two-step path.
+``cancel_requested`` records the intent, and the job reaches ``cancelled``
+when nothing is running for it any more. It may instead reach ``succeeded`` or
+``failed``, because a run that finished just before the request landed did
+real work and its outputs exist.
+
+That last rule is why nothing but ``running`` may enter ``cancel_requested``:
+it is the one state an outcome can follow without a fresh report of execution,
+so a job that was never reported as executing must not be able to reach it.
 """
 
 from __future__ import annotations
@@ -76,7 +83,7 @@ EXECUTION_JOB_TRANSITIONS: Final[Mapping[ExecutionJobState, frozenset[ExecutionJ
                 {
                     ExecutionJobState.RUNNING,
                     ExecutionJobState.QUEUED,
-                    ExecutionJobState.CANCEL_REQUESTED,
+                    ExecutionJobState.CANCELLED,
                 }
             ),
             ExecutionJobState.RUNNING: frozenset(
@@ -109,6 +116,9 @@ not an invariant.
 _TERMINAL: Final = frozenset(
     state for state, targets in EXECUTION_JOB_TRANSITIONS.items() if not targets
 )
+
+_CANCELLABLE_OUTRIGHT: Final = frozenset({ExecutionJobState.QUEUED, ExecutionJobState.LEASED})
+"""States with no engine known to be executing, so cancelling needs no round trip."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -210,38 +220,38 @@ class ExecutionJob:
         return self._become(ExecutionJobState.QUEUED)
 
     def cancel(self) -> ExecutionJob:
-        """Cancel the job, immediately or cooperatively as its state allows.
+        """Cancel the job, outright or cooperatively as its state allows.
 
-        A queued job is cancelled outright because no agent holds it. Once one
-        does, this records the request and the agent stops at its next
-        cooperative point.
+        A job that has not been reported as running is cancelled outright,
+        since no engine is known to be executing. A running one is asked to
+        stop and finishes cancelling when it reports back.
 
         Raises:
             ExecutionJobError: if cancellation was already requested, or the
                 job has already reached an outcome.
         """
 
-        if self.state is ExecutionJobState.QUEUED:
+        if self.state in _CANCELLABLE_OUTRIGHT:
             return self.mark_cancelled()
         return self.request_cancellation()
 
     def request_cancellation(self) -> ExecutionJob:
-        """Record that the job should stop at the next cooperative point.
+        """Ask a running job's engine to stop at its next cooperative point.
 
         Raises:
-            ExecutionJobError: if no agent holds the job, if cancellation was
-                already requested, or if the job has already reached an
-                outcome.
+            ExecutionJobError: if the job is not running. A job that was never
+                reported as executing is cancelled outright instead, so that
+                an execution outcome cannot follow.
         """
 
         return self._become(ExecutionJobState.CANCEL_REQUESTED)
 
     def mark_cancelled(self) -> ExecutionJob:
-        """Cancel a queued job, or complete a requested cancellation.
+        """Cancel a job nothing is executing, or complete a stop that was asked for.
 
         Raises:
-            ExecutionJobError: if an agent holds the job and cancellation was
-                not requested first.
+            ExecutionJobError: if the job is running and has not been asked to
+                stop, or has already reached an outcome.
         """
 
         return self._become(ExecutionJobState.CANCELLED)

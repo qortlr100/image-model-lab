@@ -117,9 +117,11 @@ Adapter는 engine 내부 Python 객체에 의존하지 않는다. 외부 checkou
 
 lease를 잃으면 `leased`와 `running`은 `queued`로 돌아가고, 다음 lease가 새 `RunAttempt`를 연다. 이미 진행된 attempt는 덮어쓰지 않는다.
 
-취소 방식은 누가 job을 들고 있는지에 따라 다르다. `queued` job은 협조할 agent가 없으므로 바로 `cancelled`가 된다. agent가 lease한 뒤에는 협조적이라 두 단계다. `cancel_requested`가 의도를 기록하고, 해당 job으로 실행 중인 것이 없을 때 `cancelled`가 된다.
+취소 방식은 실행 중이라고 알려진 것이 있는지에 따라 다르다. `running`에 이르지 않은 job, 즉 `queued`이거나 lease만 됐고 실행 시작 보고가 없는 job은 바로 `cancelled`가 된다. 종료를 기다려야 할 engine이 없기 때문이다. agent가 마침 engine을 띄운 참이었다면 다음 보고 시점에 job이 취소된 것을 알고 중단하며, engine이 남긴 것은 해당 attempt 아래 보존된다.
 
-취소 요청이 전달되기 전에 끝난 작업은 산출물이 실제로 존재하므로 `cancel_requested`에서 `succeeded` 또는 `failed`로 보고한다. `queued`에서 `cancel_requested`로 가지 않는 이유가 이것이다. 아무에게도 넘어간 적 없는 작업에 실행 결과가 붙을 수 있어서는 안 된다.
+`running` job만 협조적 2단계를 거친다. `cancel_requested`가 의도를 기록하고, 실행 중인 것이 없을 때 `cancelled`가 된다. 취소 요청이 닿기 직전에 끝난 작업은 산출물이 실제로 존재하므로 `succeeded` 또는 `failed`로 보고한다.
+
+`running` 외에는 `cancel_requested`로 들어갈 수 없는 이유가 이것이다. `cancel_requested`는 새로운 실행 보고 없이도 실행 결과가 뒤따를 수 있는 유일한 상태이므로, 실행 중이라고 보고된 적 없는 job은 이 상태에 도달할 수 없어야 한다.
 
 같은 전이를 반복하면 거부된다. 전달은 at-least-once이므로 완료 보고가 두 번 도착할 수 있고, 중복인지 충돌인지는 job 상태와 idempotency key를 아는 use case가 판단한다.
 

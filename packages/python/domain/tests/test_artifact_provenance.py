@@ -65,15 +65,36 @@ def test_rejects_claiming_both_an_in_system_parent_and_an_outside_source() -> No
         "\\\\nas-01\\inbox\\scan-012.tif",
         "C:\\Users\\me\\inbox\\scan-012.tif",
         "d:/photos/inbox/scan-012.tif",
+        "copied from /mnt/nas/inbox/scan-012.tif",
+        "source C:\\Users\\me\\scan-012.tif",
+        "imported from file:///mnt/nas/inbox",
+        "scanned batch 12, staged under /srv/import",
     ],
 )
-def test_rejects_a_machine_path_as_the_source_label(label: str) -> None:
-    """Where one machine kept a file is not what the source was."""
+def test_rejects_a_machine_path_anywhere_in_the_source_label(label: str) -> None:
+    """Where one machine kept a file is not what the source was, and a path
+    buried in a sentence leaks the same mount root as a bare one."""
 
     with pytest.raises(ArtifactProvenanceError):
         ArtifactProvenance(
             kind=ProvenanceKind.INGESTED, recorded_at=RECORDED_AT, source_label=label
         )
+
+
+@pytest.mark.parametrize(
+    "label",
+    [
+        "https://example.org/gallery/42",
+        "commissioned artwork, delivery 2026/07",
+        "scanned negatives batch 12",
+    ],
+)
+def test_accepts_a_label_that_describes_a_real_external_source(label: str) -> None:
+    provenance = ArtifactProvenance(
+        kind=ProvenanceKind.INGESTED, recorded_at=RECORDED_AT, source_label=label
+    )
+
+    assert provenance.source_label == label
 
 
 @pytest.mark.parametrize(
