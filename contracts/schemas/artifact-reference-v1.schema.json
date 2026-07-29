@@ -23,18 +23,18 @@
       "allOf": [
         {
           "description": "Known namespace, and key segments of at most 255 characters.",
-          "pattern": "^nas://(assets|datasets|models|runs|workflows)/[a-z0-9][a-z0-9._-]{0,254}(/[a-z0-9][a-z0-9._-]{0,254})*$"
+          "pattern": "^nas://(assets|datasets|models|runs|workflows)/[a-z0-9][a-z0-9._-]{0,254}(/[a-z0-9][a-z0-9._-]{0,254})*(?![\\s\\S])"
         },
         {
           "description": "Key of at most 1024 characters. A whole-URI maxLength cannot express this because the namespace length varies.",
-          "pattern": "^nas://(assets|datasets|models|runs|workflows)/.{1,1024}$"
+          "pattern": "^nas://(assets|datasets|models|runs|workflows)/.{1,1024}(?![\\s\\S])"
         }
       ]
     },
     "sha256": {
       "description": "SHA-256 digest of the artifact bytes, lowercase hex, unprefixed.",
       "type": "string",
-      "pattern": "^[0-9a-f]{64}$"
+      "pattern": "^[0-9a-f]{64}(?![\\s\\S])"
     },
     "size_bytes": {
       "description": "Exact byte size of the artifact.",
@@ -44,7 +44,7 @@
     "media_type": {
       "description": "Bare <type>/<subtype>, lowercase, without parameters or wildcards.",
       "type": "string",
-      "pattern": "^[a-z0-9][a-z0-9!#$&^_.+-]{0,126}/[a-z0-9][a-z0-9!#$&^_.+-]{0,126}$"
+      "pattern": "^[a-z0-9][a-z0-9!#$&^_.+-]{0,126}/[a-z0-9][a-z0-9!#$&^_.+-]{0,126}(?![\\s\\S])"
     }
   }
 }

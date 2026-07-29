@@ -68,6 +68,23 @@ def _namespace_choices() -> str:
     return ", ".join(namespace.value for namespace in ArtifactNamespace)
 
 
+def _coerce_namespace(value: object) -> ArtifactNamespace:
+    """Return ``value`` as a namespace, accepting its plain string spelling.
+
+    ``ArtifactNamespace`` is a ``StrEnum``, so a bare ``"assets"`` compares
+    equal to the member and would slip through a construction unnoticed, only
+    to fail later where the member API is used. Normalising here means direct
+    construction either yields a usable URI or fails immediately.
+    """
+
+    try:
+        return ArtifactNamespace(value)
+    except ValueError:
+        raise ArtifactUriError(
+            f"{value!r} is not a known artifact namespace; expected one of {_namespace_choices()}"
+        ) from None
+
+
 def _validate_key(key: str) -> None:
     if not key:
         raise ArtifactUriError("an artifact key must not be empty")
@@ -123,6 +140,11 @@ class ArtifactUri:
     key: str
 
     def __post_init__(self) -> None:
+        # `type(...) is not` rather than isinstance: a StrEnum member and its
+        # plain string spelling are equal, so only an exact type check spots
+        # the string a dynamically typed caller passed in.
+        if type(self.namespace) is not ArtifactNamespace:
+            object.__setattr__(self, "namespace", _coerce_namespace(self.namespace))
         _validate_key(self.key)
 
     @classmethod
@@ -142,15 +164,7 @@ class ArtifactUri:
         if not separator:
             raise ArtifactUriError(f"{value!r} has no key; expected '{_PREFIX}<namespace>/<key>'")
 
-        try:
-            namespace = ArtifactNamespace(namespace_text)
-        except ValueError:
-            raise ArtifactUriError(
-                f"{namespace_text!r} is not a known artifact namespace; "
-                f"expected one of {_namespace_choices()}"
-            ) from None
-
-        return cls(namespace=namespace, key=key)
+        return cls(namespace=_coerce_namespace(namespace_text), key=key)
 
     def __str__(self) -> str:
         return f"{_PREFIX}{self.namespace.value}/{self.key}"

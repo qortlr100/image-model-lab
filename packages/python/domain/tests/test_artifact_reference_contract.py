@@ -168,6 +168,27 @@ def test_an_integral_float_passes_the_schema_and_still_loads(
     assert ArtifactReference.from_json_dict(candidate).to_json_dict() == load(EXAMPLE_PATH)
 
 
+@pytest.mark.parametrize("field", ["logical_uri", "sha256", "media_type"])
+@pytest.mark.parametrize("terminator", ["\n", "\r\n", "\r"])
+def test_the_schema_rejects_a_trailing_line_terminator(
+    validator: SchemaValidator, field: str, terminator: str
+) -> None:
+    """Anchors have to bind to the absolute end of the string.
+
+    A JSON Schema pattern is applied with search semantics, and in Python's
+    regex engine `$` also matches just before a final newline. With a plain
+    `$` a producer could publish a digest carrying a trailing newline that
+    passes the schema and then fails to load.
+    """
+
+    example = load(EXAMPLE_PATH)
+    candidate = {**example, field: f"{example[field]}{terminator}"}
+
+    assert not validator.is_valid(candidate)
+    with pytest.raises(ValueError):
+        ArtifactReference.from_json_dict(candidate)
+
+
 def test_a_tolerated_digest_spelling_is_written_back_canonically(
     validator: SchemaValidator,
 ) -> None:

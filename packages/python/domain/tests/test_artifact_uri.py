@@ -160,6 +160,26 @@ def test_direct_construction_validates_the_key() -> None:
         ArtifactUri(namespace=ArtifactNamespace.ASSETS, key="../../etc/passwd")
 
 
+def test_a_plain_string_namespace_is_normalized() -> None:
+    """A StrEnum member equals its plain spelling, so a string must not linger.
+
+    Left as a string it would surface much later, where the member API is
+    used, instead of at construction.
+    """
+
+    uri = ArtifactUri(namespace="assets", key="original/c9")  # type: ignore[arg-type]
+
+    assert uri.namespace is ArtifactNamespace.ASSETS
+    assert str(uri) == "nas://assets/original/c9"
+    assert uri == ArtifactUri.parse("nas://assets/original/c9")
+
+
+@pytest.mark.parametrize("namespace", ["etc", "Assets", "", 7, None])
+def test_direct_construction_rejects_an_unknown_namespace(namespace: object) -> None:
+    with pytest.raises(ArtifactUriError):
+        ArtifactUri(namespace=namespace, key="original/c9")  # type: ignore[arg-type]
+
+
 def test_namespace_values_are_stable() -> None:
     assert [namespace.value for namespace in ArtifactNamespace] == [
         "assets",
