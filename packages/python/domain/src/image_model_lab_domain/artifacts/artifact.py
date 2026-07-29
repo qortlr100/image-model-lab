@@ -97,7 +97,9 @@ class Artifact:
             field="artifact reference",
             error=ArtifactError,
         )
-        object.__setattr__(self, "provenance", _validated_provenance(self.provenance))
+        object.__setattr__(
+            self, "provenance", _validated_provenance(self.provenance, artifact_id=self.id)
+        )
         object.__setattr__(
             self,
             "state",
@@ -185,12 +187,16 @@ class Artifact:
 
 
 def _validated_provenance(
-    records: Iterable[ArtifactProvenance],
+    records: Iterable[ArtifactProvenance], *, artifact_id: UUID
 ) -> tuple[ArtifactProvenance, ...]:
     """Copy ``records`` into a tuple, rejecting an empty or repeated history.
 
     The copy matters: a caller that kept a list could otherwise rewrite an
     artifact's history through its own reference.
+
+    A record naming ``artifact_id`` as its own source is refused too. Bytes
+    come from somewhere else, so an artifact that cites itself has recorded a
+    cycle in place of the origin it was supposed to name.
     """
 
     try:
@@ -213,6 +219,11 @@ def _validated_provenance(
             field="artifact provenance record",
             error=ArtifactError,
         )
+        if record.source_id == artifact_id:
+            raise ArtifactError(
+                f"artifact provenance names the artifact itself, {artifact_id}, as its "
+                "source; bytes come from somewhere else"
+            )
         if record in seen:
             raise ArtifactError(f"artifact provenance record {record} is already recorded")
         seen.append(record)

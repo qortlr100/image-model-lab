@@ -233,6 +233,25 @@ def test_a_quarantined_artifact_takes_no_new_origin() -> None:
         quarantined.record_provenance(second)
 
 
+@pytest.mark.parametrize("kind", [ProvenanceKind.DERIVED, ProvenanceKind.RUN_OUTPUT])
+def test_an_artifact_cannot_be_its_own_source(kind: ProvenanceKind) -> None:
+    """Citing itself records a cycle in place of the origin it should name."""
+
+    artifact_id = uuid4()
+    itself = ArtifactProvenance(
+        kind=kind,
+        recorded_at=datetime(2026, 8, 2, 14, 30, tzinfo=UTC),
+        source_id=artifact_id,
+    )
+
+    with pytest.raises(ArtifactError):
+        Artifact(id=artifact_id, reference=REFERENCE, provenance=(itself,))
+
+    existing = Artifact(id=artifact_id, reference=REFERENCE, provenance=(PROVENANCE,))
+    with pytest.raises(ArtifactError):
+        existing.record_provenance(itself)
+
+
 def test_a_state_change_carries_the_whole_history() -> None:
     second = ArtifactProvenance(
         kind=ProvenanceKind.DERIVED,
