@@ -130,6 +130,8 @@ def test_accepts_a_label_that_describes_a_real_external_source(label: str) -> No
         "https://example.org/a.png?token=9f8d0c1a4b2e",
         "https://curator:hunter2@example.org/gallery/42",
         "downloaded from https://example.org/a.png?access_token=abc on request",
+        "https://example.org/a.png?access%5ftoken=9f8d0c1a4b2e",
+        "https://curator%3Ahunter2@example.org/gallery/42",
     ],
 )
 def test_rejects_a_source_label_carrying_a_credential(label: str) -> None:

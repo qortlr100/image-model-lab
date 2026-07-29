@@ -43,6 +43,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from enum import StrEnum
 from typing import Final
+from urllib.parse import unquote
 from uuid import UUID
 
 from image_model_lab_domain.artifacts.errors import ArtifactProvenanceError
@@ -265,13 +266,18 @@ def _carries_credentials(url: str) -> bool:
     them, so neither belongs in a durable record. The rejected value is never
     echoed in the error: repeating a secret to report it is how it ends up in
     a log.
+
+    Percent-encoding is undone first, because a reader decodes it too:
+    ``?access%5ftoken=`` is the same parameter as ``?access_token=`` and
+    ``user%3Apass@`` is the same credential as ``user:pass@``.
     """
 
-    authority = url.partition("://")[2].partition("/")[0]
+    decoded = unquote(url)
+    authority = decoded.partition("://")[2].partition("/")[0]
     userinfo, at_sign, _ = authority.rpartition("@")
     if at_sign and ":" in userinfo:
         return True
-    return any(name.lower() in _CREDENTIAL_PARAMETERS for name in _URL_PARAMETER.findall(url))
+    return any(name.lower() in _CREDENTIAL_PARAMETERS for name in _URL_PARAMETER.findall(decoded))
 
 
 __all__ = ["MAX_SOURCE_LABEL_LENGTH", "ArtifactProvenance", "ProvenanceKind"]
