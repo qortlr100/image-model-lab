@@ -48,8 +48,15 @@ MAX_SOURCE_LABEL_LENGTH: Final = 500
 """Maximum length of an ingest source label, in characters."""
 
 _REMOTE_URL: Final = re.compile(
-    r"(?<![A-Za-z0-9])(?!file://)[a-z][a-z0-9+.-]+://(?:[A-Za-z0-9]|\[[0-9A-Fa-f:.]+\])\S*",
-    re.IGNORECASE,
+    r"""
+    (?<![A-Za-z0-9])       # the scheme starts a token
+    (?!file://)            # a local path wearing a URL is not lifted
+    [a-z][a-z0-9+.-]+      # a scheme, never the single letter of a drive
+    ://
+    (?:[A-Za-z0-9]|\[[0-9A-Fa-f:.]+\])   # a host: name, userinfo, closed IPv6
+    [^\s,;"'<>]*           # the rest of the URL, stopping where prose resumes
+    """,
+    re.VERBOSE | re.IGNORECASE,
 )
 """One whole remote URL token, which a label may name a source by.
 
@@ -68,7 +75,12 @@ bracket actually closes, or ``https://[/mnt/nas`` would qualify on the bracket
 alone. And the scheme has to be at least two characters: no real scheme is one
 letter, every Windows drive is, and ``C://Users/me/a.png`` is a pasted path.
 
-Together they hold the property the lift depends on: what leaves the label is
+The URL also ends where prose resumes rather than at the next space, or
+``https://example.org/a,staged=/mnt/nas`` would leave as one token and take
+the path with it. A comma or a quote is far likelier to be a writer's
+punctuation than part of the address.
+
+Together these hold the property the lift depends on: what leaves the label is
 a whole remote URL, never something with a machine path inside it.
 """
 

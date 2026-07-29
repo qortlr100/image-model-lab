@@ -81,6 +81,8 @@ def test_rejects_claiming_both_an_in_system_parent_and_an_outside_source() -> No
         "C://Users/me/scan-012.tif",
         "d://photos/inbox/scan-012.tif",
         "https://[/mnt/nas/inbox/scan-012.tif",
+        "https://example.org/a,staged=/mnt/nas/inbox/scan-012.tif",
+        "https://example.org/a,/mnt/nas/scan-012.tif",
     ],
 )
 def test_rejects_a_machine_path_anywhere_in_the_source_label(label: str) -> None:
