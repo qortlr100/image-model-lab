@@ -62,6 +62,15 @@ def test_the_transition_table_covers_every_state() -> None:
     assert set(EXECUTION_JOB_TRANSITIONS) == set(ExecutionJobState)
 
 
+def test_the_transition_table_cannot_be_widened_at_runtime() -> None:
+    """A lifecycle a caller can edit in place is not an invariant."""
+
+    with pytest.raises(TypeError):
+        EXECUTION_JOB_TRANSITIONS[ExecutionJobState.SUCCEEDED] = frozenset(  # type: ignore[index]
+            {ExecutionJobState.LEASED}
+        )
+
+
 def test_every_allowed_transition_has_a_method() -> None:
     """No entry in the table is unreachable through the job's API."""
 

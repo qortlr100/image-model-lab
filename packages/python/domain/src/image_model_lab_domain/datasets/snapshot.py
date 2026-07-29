@@ -21,10 +21,11 @@ exist.
 
 from __future__ import annotations
 
-from collections.abc import Iterable, Sequence
+from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass, replace
 from datetime import datetime
 from enum import StrEnum
+from types import MappingProxyType
 from typing import Final
 from uuid import UUID
 
@@ -53,17 +54,25 @@ class DatasetSnapshotState(StrEnum):
     REJECTED = "rejected"
 
 
-DATASET_SNAPSHOT_TRANSITIONS: Final[dict[DatasetSnapshotState, frozenset[DatasetSnapshotState]]] = {
-    DatasetSnapshotState.DRAFT: frozenset(
-        {DatasetSnapshotState.VALIDATING, DatasetSnapshotState.REJECTED}
-    ),
-    DatasetSnapshotState.VALIDATING: frozenset(
-        {DatasetSnapshotState.SEALED, DatasetSnapshotState.REJECTED}
-    ),
-    DatasetSnapshotState.SEALED: frozenset(),
-    DatasetSnapshotState.REJECTED: frozenset(),
-}
-"""Allowed dataset snapshot state transitions, keyed by the current state."""
+DATASET_SNAPSHOT_TRANSITIONS: Final[
+    Mapping[DatasetSnapshotState, frozenset[DatasetSnapshotState]]
+] = MappingProxyType(
+    {
+        DatasetSnapshotState.DRAFT: frozenset(
+            {DatasetSnapshotState.VALIDATING, DatasetSnapshotState.REJECTED}
+        ),
+        DatasetSnapshotState.VALIDATING: frozenset(
+            {DatasetSnapshotState.SEALED, DatasetSnapshotState.REJECTED}
+        ),
+        DatasetSnapshotState.SEALED: frozenset(),
+        DatasetSnapshotState.REJECTED: frozenset(),
+    }
+)
+"""Allowed dataset snapshot state transitions, keyed by the current state.
+
+The mapping is read-only: a lifecycle that a caller can widen at runtime is
+not an invariant.
+"""
 
 
 @dataclass(frozen=True, slots=True)

@@ -78,6 +78,15 @@ def test_the_transition_table_covers_every_state() -> None:
     assert set(RUN_ATTEMPT_TRANSITIONS) == set(RunAttemptState)
 
 
+def test_the_transition_table_cannot_be_widened_at_runtime() -> None:
+    """A lifecycle a caller can edit in place is not an invariant."""
+
+    with pytest.raises(TypeError):
+        RUN_ATTEMPT_TRANSITIONS[RunAttemptState.SUCCEEDED] = frozenset(  # type: ignore[index]
+            {RunAttemptState.RUNNING}
+        )
+
+
 def test_every_allowed_transition_has_a_method() -> None:
     """No entry in the table is unreachable through the attempt's API."""
 

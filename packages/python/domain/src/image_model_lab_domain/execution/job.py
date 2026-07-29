@@ -24,8 +24,10 @@ outputs exist.
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass, replace
 from enum import StrEnum
+from types import MappingProxyType
 from typing import Final
 from uuid import UUID
 
@@ -60,37 +62,45 @@ class ExecutionJobState(StrEnum):
     CANCELLED = "cancelled"
 
 
-EXECUTION_JOB_TRANSITIONS: Final[dict[ExecutionJobState, frozenset[ExecutionJobState]]] = {
-    ExecutionJobState.QUEUED: frozenset(
-        {ExecutionJobState.LEASED, ExecutionJobState.CANCEL_REQUESTED}
-    ),
-    ExecutionJobState.LEASED: frozenset(
+EXECUTION_JOB_TRANSITIONS: Final[Mapping[ExecutionJobState, frozenset[ExecutionJobState]]] = (
+    MappingProxyType(
         {
-            ExecutionJobState.RUNNING,
-            ExecutionJobState.QUEUED,
-            ExecutionJobState.CANCEL_REQUESTED,
+            ExecutionJobState.QUEUED: frozenset(
+                {ExecutionJobState.LEASED, ExecutionJobState.CANCEL_REQUESTED}
+            ),
+            ExecutionJobState.LEASED: frozenset(
+                {
+                    ExecutionJobState.RUNNING,
+                    ExecutionJobState.QUEUED,
+                    ExecutionJobState.CANCEL_REQUESTED,
+                }
+            ),
+            ExecutionJobState.RUNNING: frozenset(
+                {
+                    ExecutionJobState.SUCCEEDED,
+                    ExecutionJobState.FAILED,
+                    ExecutionJobState.QUEUED,
+                    ExecutionJobState.CANCEL_REQUESTED,
+                }
+            ),
+            ExecutionJobState.CANCEL_REQUESTED: frozenset(
+                {
+                    ExecutionJobState.CANCELLED,
+                    ExecutionJobState.SUCCEEDED,
+                    ExecutionJobState.FAILED,
+                }
+            ),
+            ExecutionJobState.SUCCEEDED: frozenset(),
+            ExecutionJobState.FAILED: frozenset(),
+            ExecutionJobState.CANCELLED: frozenset(),
         }
-    ),
-    ExecutionJobState.RUNNING: frozenset(
-        {
-            ExecutionJobState.SUCCEEDED,
-            ExecutionJobState.FAILED,
-            ExecutionJobState.QUEUED,
-            ExecutionJobState.CANCEL_REQUESTED,
-        }
-    ),
-    ExecutionJobState.CANCEL_REQUESTED: frozenset(
-        {
-            ExecutionJobState.CANCELLED,
-            ExecutionJobState.SUCCEEDED,
-            ExecutionJobState.FAILED,
-        }
-    ),
-    ExecutionJobState.SUCCEEDED: frozenset(),
-    ExecutionJobState.FAILED: frozenset(),
-    ExecutionJobState.CANCELLED: frozenset(),
-}
-"""Allowed execution job state transitions, keyed by the current state."""
+    )
+)
+"""Allowed execution job state transitions, keyed by the current state.
+
+The mapping is read-only: a lifecycle that a caller can widen at runtime is
+not an invariant.
+"""
 
 _TERMINAL: Final = frozenset(
     state for state, targets in EXECUTION_JOB_TRANSITIONS.items() if not targets

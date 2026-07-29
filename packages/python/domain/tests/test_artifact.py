@@ -56,6 +56,15 @@ def test_the_transition_table_covers_every_state() -> None:
     assert set(ARTIFACT_TRANSITIONS) == set(ArtifactState)
 
 
+def test_the_transition_table_cannot_be_widened_at_runtime() -> None:
+    """A lifecycle a caller can edit in place is not an invariant."""
+
+    with pytest.raises(TypeError):
+        ARTIFACT_TRANSITIONS[ArtifactState.QUARANTINED] = frozenset(  # type: ignore[index]
+            {ArtifactState.AVAILABLE}
+        )
+
+
 def test_every_allowed_transition_has_a_method() -> None:
     """No entry in the table is unreachable through the artifact's API."""
 

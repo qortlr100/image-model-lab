@@ -29,8 +29,10 @@ the ingest slice that first has something to record.
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass, replace
 from enum import StrEnum
+from types import MappingProxyType
 from typing import Final
 from uuid import UUID
 
@@ -49,13 +51,19 @@ class ArtifactState(StrEnum):
     QUARANTINED = "quarantined"
 
 
-ARTIFACT_TRANSITIONS: Final[dict[ArtifactState, frozenset[ArtifactState]]] = {
-    ArtifactState.PENDING: frozenset({ArtifactState.AVAILABLE, ArtifactState.QUARANTINED}),
-    ArtifactState.AVAILABLE: frozenset({ArtifactState.MISSING, ArtifactState.QUARANTINED}),
-    ArtifactState.MISSING: frozenset({ArtifactState.AVAILABLE, ArtifactState.QUARANTINED}),
-    ArtifactState.QUARANTINED: frozenset(),
-}
-"""Allowed artifact state transitions, keyed by the current state."""
+ARTIFACT_TRANSITIONS: Final[Mapping[ArtifactState, frozenset[ArtifactState]]] = MappingProxyType(
+    {
+        ArtifactState.PENDING: frozenset({ArtifactState.AVAILABLE, ArtifactState.QUARANTINED}),
+        ArtifactState.AVAILABLE: frozenset({ArtifactState.MISSING, ArtifactState.QUARANTINED}),
+        ArtifactState.MISSING: frozenset({ArtifactState.AVAILABLE, ArtifactState.QUARANTINED}),
+        ArtifactState.QUARANTINED: frozenset(),
+    }
+)
+"""Allowed artifact state transitions, keyed by the current state.
+
+The mapping is read-only: a lifecycle that a caller can widen at runtime is
+not an invariant.
+"""
 
 
 @dataclass(frozen=True, slots=True)

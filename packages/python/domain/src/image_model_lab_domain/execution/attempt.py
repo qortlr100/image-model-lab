@@ -23,9 +23,11 @@ them. An abandoned attempt cannot, because nobody was left to finalize one.
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass, replace
 from datetime import datetime
 from enum import StrEnum
+from types import MappingProxyType
 from typing import Final
 from uuid import UUID
 
@@ -50,21 +52,29 @@ class RunAttemptState(StrEnum):
     ABANDONED = "abandoned"
 
 
-RUN_ATTEMPT_TRANSITIONS: Final[dict[RunAttemptState, frozenset[RunAttemptState]]] = {
-    RunAttemptState.RUNNING: frozenset(
+RUN_ATTEMPT_TRANSITIONS: Final[Mapping[RunAttemptState, frozenset[RunAttemptState]]] = (
+    MappingProxyType(
         {
-            RunAttemptState.SUCCEEDED,
-            RunAttemptState.FAILED,
-            RunAttemptState.CANCELLED,
-            RunAttemptState.ABANDONED,
+            RunAttemptState.RUNNING: frozenset(
+                {
+                    RunAttemptState.SUCCEEDED,
+                    RunAttemptState.FAILED,
+                    RunAttemptState.CANCELLED,
+                    RunAttemptState.ABANDONED,
+                }
+            ),
+            RunAttemptState.SUCCEEDED: frozenset(),
+            RunAttemptState.FAILED: frozenset(),
+            RunAttemptState.CANCELLED: frozenset(),
+            RunAttemptState.ABANDONED: frozenset(),
         }
-    ),
-    RunAttemptState.SUCCEEDED: frozenset(),
-    RunAttemptState.FAILED: frozenset(),
-    RunAttemptState.CANCELLED: frozenset(),
-    RunAttemptState.ABANDONED: frozenset(),
-}
-"""Allowed run attempt state transitions, keyed by the current state."""
+    )
+)
+"""Allowed run attempt state transitions, keyed by the current state.
+
+The mapping is read-only: a lifecycle that a caller can widen at runtime is
+not an invariant.
+"""
 
 _TERMINAL: Final = frozenset(
     state for state, targets in RUN_ATTEMPT_TRANSITIONS.items() if not targets
