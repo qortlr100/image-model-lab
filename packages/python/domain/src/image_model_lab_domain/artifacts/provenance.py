@@ -48,7 +48,7 @@ MAX_SOURCE_LABEL_LENGTH: Final = 500
 """Maximum length of an ingest source label, in characters."""
 
 _REMOTE_URL: Final = re.compile(
-    r"(?<![A-Za-z0-9])(?!file://)[a-z][a-z0-9+.-]*://[A-Za-z0-9\[]\S*", re.IGNORECASE
+    r"(?<![A-Za-z0-9])(?!file://)[a-z][a-z0-9+.-]+://[A-Za-z0-9\[]\S*", re.IGNORECASE
 )
 """One whole remote URL token, which a label may name a source by.
 
@@ -58,11 +58,13 @@ lifted out of the label before the scan rather than exempted case by case
 inside it. ``file://`` is deliberately not lifted: that is a local path
 wearing a URL, and the scan should see it.
 
-Two things keep the lift from becoming a way to smuggle a path past the scan.
-The scheme has to start a token, or ``file:///mnt/nas`` would be lifted as the
-URL ``ile:///mnt/nas``; and a host has to follow ``://``, or
+Three things keep the lift from becoming a way to smuggle a path past the
+scan. The scheme has to start a token, or ``file:///mnt/nas`` would be lifted
+as the URL ``ile:///mnt/nas``. A host has to follow ``://``, or
 ``https:///mnt/nas`` would be lifted as a URL whose whole content is a machine
-path. A hostname, userinfo or a bracketed IPv6 literal all satisfy the latter.
+path; a hostname, userinfo or a bracketed IPv6 literal all satisfy that. And
+the scheme has to be at least two characters: no real scheme is one letter,
+every Windows drive is, and ``C://Users/me/a.png`` is a path someone pasted.
 """
 
 _MACHINE_PATH: Final = re.compile(
