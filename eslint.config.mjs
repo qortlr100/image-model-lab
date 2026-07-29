@@ -10,7 +10,7 @@ export default tseslint.config(
   ...tseslint.configs.strictTypeChecked,
   ...tseslint.configs.stylisticTypeChecked,
   {
-    files: ["packages/typescript/**/*.ts"],
+    files: ["apps/**/*.{ts,tsx}", "packages/typescript/**/*.ts"],
     languageOptions: {
       parserOptions: {
         projectService: true,

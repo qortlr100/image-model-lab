@@ -21,6 +21,8 @@
 
 ### M0-02 — Service skeleton
 
+상태: 구현 완료
+
 범위:
 
 - `apps/web`, `services/api`, `services/worker`, `services/dgx-agent`

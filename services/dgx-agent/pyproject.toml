@@ -1,0 +1,13 @@
+[project]
+name = "image-model-lab-dgx-agent"
+version = "0.1.0"
+description = "DGX execution agent skeleton for the image model lab."
+requires-python = ">=3.13,<3.14"
+dependencies = []
+
+[project.scripts]
+image-model-lab-dgx-agent = "image_model_lab_dgx_agent.__main__:main"
+
+[build-system]
+requires = ["uv_build>=0.11.0,<0.12.0"]
+build-backend = "uv_build"

@@ -2,7 +2,7 @@
 
 개인 이미지 생성 모델 작업을 한곳에서 추적하는 모노레포입니다. 데이터셋 준비, LoRA 학습, ComfyUI 생성 결과와 평가를 하나의 재현 가능한 흐름으로 연결하는 것이 목표입니다.
 
-현재 저장소는 **기반 구현 단계**입니다. 실행 가능한 서비스는 아직 없으며, 구현 범위와 경계는 [`docs/00-scope.md`](docs/00-scope.md), 전체 구조는 [`docs/01-architecture.md`](docs/01-architecture.md)를 기준으로 합니다.
+현재 저장소는 **기반 구현 단계**입니다. 네 배포 단위의 최소 service skeleton만 실행 가능하며, 제품 기능은 아직 구현되지 않았습니다. 구현 범위와 경계는 [`docs/00-scope.md`](docs/00-scope.md), 전체 구조는 [`docs/01-architecture.md`](docs/01-architecture.md)를 기준으로 합니다.
 
 ## 목표
 
@@ -43,7 +43,29 @@
 just check
 ```
 
-개별 공통 명령은 `just format`, `just lint`, `just typecheck`, `just test`입니다. `just check`는 먼저 `uv sync --frozen --all-packages`와 `pnpm install --frozen-lockfile`을 실행하므로, clean checkout에서도 별도 bootstrap 명령이 필요하지 않습니다.
+개별 공통 명령은 `just format`, `just lint`, `just typecheck`, `just test`, `just build`입니다. `just check`는 먼저 `uv sync --frozen --all-packages`와 `pnpm install --frozen-lockfile`을 실행하므로, clean checkout에서도 별도 bootstrap 명령이 필요하지 않습니다.
+
+## Service skeleton
+
+개발용 최소 실행 명령은 다음과 같습니다. Worker와 DGX Agent의 `run`은 process와 종료 처리만 검증하는 idle loop이며 아직 job을 claim하지 않습니다.
+
+```bash
+corepack pnpm --filter @image-model-lab/web dev
+uv run image-model-lab-api
+uv run image-model-lab-worker run
+uv run image-model-lab-dgx-agent run
+```
+
+상태와 버전은 Web의 `/health.json`, `/version.json`, API의 `/health`, `/version`, 그리고 두 background service의 `health`, `version` subcommand로 확인합니다.
+
+각 image는 저장소 root를 build context로 사용합니다.
+
+```bash
+docker build -f apps/web/Dockerfile .
+docker build -f services/api/Dockerfile .
+docker build -f services/worker/Dockerfile .
+docker build -f services/dgx-agent/Dockerfile .
+```
 
 ## 모노레포 구조
 
@@ -71,7 +93,7 @@ tools/
 docs/
 ```
 
-현재 `packages/python/domain`과 `packages/typescript/api-client`가 workspace와 품질 도구를 검증하는 최소 패키지로 구현되어 있습니다. 나머지 구조는 해당 vertical slice에서 생성하며, 빈 디렉터리를 보존하기 위한 placeholder는 추가하지 않습니다.
+현재 네 service skeleton과 `packages/python/domain`, `packages/typescript/api-client`가 workspace와 품질 도구를 검증하는 최소 단위로 구현되어 있습니다. 나머지 구조는 해당 vertical slice에서 생성하며, 빈 디렉터리를 보존하기 위한 placeholder는 추가하지 않습니다.
 
 ## 라이선스 주의
 
