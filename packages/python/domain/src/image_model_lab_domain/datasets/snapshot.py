@@ -38,11 +38,7 @@ from image_model_lab_domain.validation import (
     require_instance,
     require_instant,
     require_int,
-    require_text,
 )
-
-MAX_OVERRIDE_REASON_LENGTH: Final = 500
-"""Maximum length of a caption override reason, in characters."""
 
 
 class DatasetSnapshotState(StrEnum):
@@ -77,22 +73,23 @@ not an invariant.
 
 @dataclass(frozen=True, slots=True)
 class SnapshotItem:
-    """One asset revision and the caption revision paired with it.
+    """One asset revision and the approved caption revision paired with it.
 
-    ``caption_approved`` is the approval as it stood when the item was added,
-    recorded rather than looked up, because a sealed snapshot has to stay
-    explainable after the caption revision it names is superseded.
+    ``caption_approved`` has to be stated and has to be true. A snapshot is
+    sealed from approved revisions only, so an unapproved caption has no way
+    into one -- there is no override, and a caption that needs an exception
+    needs a review instead.
 
-    An unapproved caption needs ``caption_override_reason``: including one is
-    a deliberate exception, and an exception with no stated reason is
-    indistinguishable from a review that was skipped by accident.
+    It is recorded rather than merely checked because a sealed snapshot has to
+    stay explainable after the caption revision it names is superseded: the
+    item says the approval existed when the item was added, which is the fact
+    the seal rests on.
     """
 
     asset_revision_id: UUID
     caption_revision_id: UUID
     caption_approved: bool
     repeats: int = 1
-    caption_override_reason: str | None = None
 
     def __post_init__(self) -> None:
         require_id(
@@ -109,22 +106,11 @@ class SnapshotItem:
             error=SnapshotItemError,
         )
         require_int(self.repeats, field="snapshot item repeats", error=SnapshotItemError, minimum=1)
-        if self.caption_override_reason is not None:
-            require_text(
-                self.caption_override_reason,
-                field="snapshot item caption override reason",
-                error=SnapshotItemError,
-                max_length=MAX_OVERRIDE_REASON_LENGTH,
-            )
-        if not self.caption_approved and self.caption_override_reason is None:
+        if not self.caption_approved:
             raise SnapshotItemError(
-                "a snapshot item whose caption is not approved needs a caption override "
-                "reason; an unreviewed caption does not enter a training input silently"
-            )
-        if self.caption_approved and self.caption_override_reason is not None:
-            raise SnapshotItemError(
-                "a snapshot item with an approved caption must not carry an override "
-                "reason; there is nothing being overridden"
+                "a snapshot item's caption revision must be approved; a snapshot is sealed "
+                "from approved revisions only, so an exception is a review that has not "
+                "happened yet rather than an item to record"
             )
 
 
@@ -331,7 +317,6 @@ def _validated_items(items: Iterable[SnapshotItem]) -> tuple[SnapshotItem, ...]:
 
 __all__ = [
     "DATASET_SNAPSHOT_TRANSITIONS",
-    "MAX_OVERRIDE_REASON_LENGTH",
     "DatasetSnapshot",
     "DatasetSnapshotState",
     "SnapshotItem",

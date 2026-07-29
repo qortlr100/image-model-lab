@@ -85,6 +85,9 @@ def test_rejects_claiming_both_an_in_system_parent_and_an_outside_source() -> No
         "https://example.org/a,/mnt/nas/scan-012.tif",
         "https://user@/mnt/nas/inbox/scan-012.tif",
         "https://note@host@/mnt/nas/inbox/scan-012.tif",
+        "source=https://example.org/a)staged=/mnt/nas/inbox/scan-012.tif",
+        "[https://example.org/a]/mnt/nas/inbox/scan-012.tif",
+        "{https://example.org/a}/srv/import/scan-012.tif",
         "https://example.org/C:\\Users\\me\\scan-012.tif",
         "https://example.org\\\\server\\share\\scan-012.tif",
     ],
@@ -172,6 +175,7 @@ def test_rejects_a_source_label_carrying_a_credential(label: str) -> None:
         "https://example.org/image?st=article&se=summer&sp=2",
         "https://例え.テスト/gallery/42",
         "촬영 원본 모음, 2026/07 인계분",
+        "https://en.wikipedia.org/wiki/Foo_(bar)",
     ],
 )
 def test_accepts_a_url_whose_parameters_are_not_credentials(label: str) -> None:
