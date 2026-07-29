@@ -86,7 +86,7 @@ def test_rejects_an_unsupported_schema_version(version: int) -> None:
         ArtifactReference.from_json_dict({**PAYLOAD, "schema_version": version})
 
 
-@pytest.mark.parametrize("version", ["1", 1.0, True, None])
+@pytest.mark.parametrize("version", ["1", 1.5, True, None])
 def test_rejects_a_non_integer_schema_version(version: object) -> None:
     """``True == 1``, so a bool must not sneak through the version check."""
 
@@ -94,10 +94,39 @@ def test_rejects_a_non_integer_schema_version(version: object) -> None:
         ArtifactReference.from_json_dict({**PAYLOAD, "schema_version": version})
 
 
-@pytest.mark.parametrize("size_bytes", ["20480", 20480.0, True, None, [20480]])
+@pytest.mark.parametrize("size_bytes", ["20480", 20480.5, True, None, [20480]])
 def test_rejects_a_non_integer_size(size_bytes: object) -> None:
     with pytest.raises(ArtifactReferenceError):
         ArtifactReference.from_json_dict({**PAYLOAD, "size_bytes": size_bytes})
+
+
+def test_reads_integral_floats_and_writes_them_back_as_integers() -> None:
+    """JSON Schema judges a number by its value, so ``20480.0`` is an integer.
+
+    A payload the published schema accepts has to stay readable, and what is
+    written back is the canonical integer.
+    """
+
+    loaded = ArtifactReference.from_json_dict(
+        {**PAYLOAD, "schema_version": 1.0, "size_bytes": 20480.0}
+    )
+
+    assert loaded.size_bytes == 20480
+    assert type(loaded.size_bytes) is int
+    assert loaded.to_json_dict() == PAYLOAD
+
+
+@pytest.mark.parametrize("size_bytes", [20480.0, 1.5, True])
+def test_direct_construction_rejects_a_non_integer_size(size_bytes: object) -> None:
+    """A float never reaches storage: to_json_dict would break the contract."""
+
+    with pytest.raises(ArtifactReferenceError):
+        ArtifactReference(
+            uri=ArtifactUri.parse(f"nas://assets/original/c9/{DIGEST}"),
+            digest=Sha256Digest(DIGEST),
+            size_bytes=size_bytes,  # type: ignore[arg-type]
+            media_type=MediaType("image/png"),
+        )
 
 
 @pytest.mark.parametrize("field", ["logical_uri", "sha256", "media_type"])

@@ -113,6 +113,61 @@ def test_the_schema_rejects_what_the_domain_rejects(
         ArtifactReference.from_json_dict(candidate)
 
 
+# Segments of 204 characters joined by 4 slashes are exactly the 1024 the
+# domain allows; one more character overruns the key limit without overrunning
+# any single segment.
+MAX_LENGTH_KEY = "/".join(["a" * 204] * 5)
+OVER_LENGTH_KEY = MAX_LENGTH_KEY + "a"
+MAX_LENGTH_SEGMENT = "a" * 255
+OVER_LENGTH_SEGMENT = "a" * 256
+
+
+@pytest.mark.parametrize(
+    ("key", "accepted"),
+    [
+        (MAX_LENGTH_SEGMENT, True),
+        (OVER_LENGTH_SEGMENT, False),
+        (MAX_LENGTH_KEY, True),
+        (OVER_LENGTH_KEY, False),
+    ],
+)
+def test_the_schema_carries_the_same_key_limits_as_the_domain(
+    validator: SchemaValidator, key: str, accepted: bool
+) -> None:
+    """A schema-valid URI must load, and a rejected one must fail both sides.
+
+    A whole-URI maxLength cannot express the key limit, because the namespace
+    length varies. Without the segment and key patterns, a producer reading
+    only the schema could publish a URI the domain refuses to load.
+    """
+
+    candidate = {**load(EXAMPLE_PATH), "logical_uri": f"nas://assets/{key}"}
+
+    assert validator.is_valid(candidate) is accepted
+    if accepted:
+        assert ArtifactReference.from_json_dict(candidate).uri.key == key
+    else:
+        with pytest.raises(ValueError):
+            ArtifactReference.from_json_dict(candidate)
+
+
+def test_the_key_length_fixtures_sit_on_the_documented_boundaries() -> None:
+    assert len(MAX_LENGTH_KEY) == 1024
+    assert len(OVER_LENGTH_KEY) == 1025
+    assert max(len(segment) for segment in MAX_LENGTH_KEY.split("/")) <= 255
+
+
+def test_an_integral_float_passes_the_schema_and_still_loads(
+    validator: SchemaValidator,
+) -> None:
+    """JSON Schema judges a number by its value, so ``20480.0`` is an integer."""
+
+    candidate = {**load(EXAMPLE_PATH), "schema_version": 1.0, "size_bytes": 20480.0}
+
+    assert validator.is_valid(candidate)
+    assert ArtifactReference.from_json_dict(candidate).to_json_dict() == load(EXAMPLE_PATH)
+
+
 def test_a_tolerated_digest_spelling_is_written_back_canonically(
     validator: SchemaValidator,
 ) -> None:

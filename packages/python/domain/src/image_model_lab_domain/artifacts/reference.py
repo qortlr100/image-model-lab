@@ -53,15 +53,29 @@ def _require_str(payload: Mapping[str, object], field: str) -> str:
 
 
 def _require_int(payload: Mapping[str, object], field: str) -> int:
+    """Read an integer field, following the published schema's number rules.
+
+    JSON Schema judges a number by its mathematical value, so ``20480.0``
+    satisfies ``"type": "integer"`` and ``1.0`` satisfies ``"const": 1``. A
+    Python parser keeps those as floats. Accepting an integral float and
+    normalising it keeps every schema-valid payload readable; a fractional
+    value is still refused, and a bool never counts as a number because
+    ``bool`` is a subclass of ``int`` and ``True == 1``.
+    """
+
     value = _require_field(payload, field)
-    # bool is a subclass of int, and `True == 1`, so an unchecked bool would
-    # pass both the isinstance test and a version equality test.
-    if isinstance(value, bool) or not isinstance(value, int):
+    if isinstance(value, bool):
         raise ArtifactReferenceError(
-            f"serialized artifact reference field {field!r} must be an integer, "
-            f"got {type(value).__name__}"
+            f"serialized artifact reference field {field!r} must be an integer, got bool"
         )
-    return value
+    if isinstance(value, int):
+        return value
+    if isinstance(value, float) and value.is_integer():
+        return int(value)
+    raise ArtifactReferenceError(
+        f"serialized artifact reference field {field!r} must be an integer, "
+        f"got {type(value).__name__}"
+    )
 
 
 @dataclass(frozen=True, slots=True)
@@ -74,8 +88,14 @@ class ArtifactReference:
     media_type: MediaType
 
     def __post_init__(self) -> None:
-        if isinstance(self.size_bytes, bool):
-            raise ArtifactReferenceError("artifact size_bytes must be an integer, got bool")
+        # `type(...) is not int` rather than isinstance: a bool or a float
+        # would otherwise be stored and then serialized as a size_bytes the
+        # published schema refuses. A dynamically typed caller reaches this
+        # constructor without passing through from_json_dict.
+        if type(self.size_bytes) is not int:
+            raise ArtifactReferenceError(
+                f"artifact size_bytes must be an int, got {type(self.size_bytes).__name__}"
+            )
         if self.size_bytes < 0:
             raise ArtifactReferenceError(
                 f"artifact size_bytes must not be negative, got {self.size_bytes}"
