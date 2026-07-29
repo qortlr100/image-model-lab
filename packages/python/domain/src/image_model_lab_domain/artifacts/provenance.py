@@ -29,6 +29,11 @@ refused for the part that is a path.
 None of this makes the check a boundary: a caller determined to write a path
 in prose can. It catches the mistake that actually happens, which is pasting
 one in.
+
+A URL carrying a credential is refused outright rather than scanned. A
+presigned link or a basic-auth URL works for whoever reads it, and provenance
+is durable, so storing one leaves a usable secret behind long after the import
+it described. Provenance names where bytes came from, not a way back in.
 """
 
 from __future__ import annotations
@@ -55,7 +60,7 @@ _REMOTE_URL: Final = re.compile(
     ://
     (?>(?:[^\s/@]+@)?)     # userinfo, taken atomically so a host must follow it
     (?:[A-Za-z0-9]|\[[0-9A-Fa-f:.]+\])   # a host: a name, or a closed IPv6 literal
-    [^\s,;"'<>]*           # the rest of the URL, stopping where prose resumes
+    [^\s,;"'<>\\]*         # the rest, stopping where prose or a Windows path resumes
     """,
     re.VERBOSE | re.IGNORECASE,
 )
@@ -81,11 +86,64 @@ drive is, and ``C://Users/me/a.png`` is a pasted path.
 The URL also ends where prose resumes rather than at the next space, or
 ``https://example.org/a,staged=/mnt/nas`` would leave as one token and take
 the path with it. A comma or a quote is far likelier to be a writer's
-punctuation than part of the address.
+punctuation than part of the address, and a raw backslash is never part of
+one at all, so ``https://example.org/C:\\Users\\me\\a.png`` ends at the drive.
 
 Together these hold the property the lift depends on: what leaves the label is
 a whole remote URL, never something with a machine path inside it.
 """
+
+_CREDENTIAL_PARAMETERS: Final = frozenset(
+    {
+        # Generic
+        "access_token",
+        "accesskey",
+        "access_key",
+        "accesskeyid",
+        "access_key_id",
+        "api_key",
+        "apikey",
+        "auth",
+        "authorization",
+        "credential",
+        "credentials",
+        "id_token",
+        "password",
+        "passwd",
+        "pwd",
+        "refresh_token",
+        "secret",
+        "client_secret",
+        "sig",
+        "signature",
+        "token",
+        # AWS presigned
+        "x-amz-signature",
+        "x-amz-credential",
+        "x-amz-security-token",
+        # Google signed
+        "x-goog-signature",
+        "x-goog-credential",
+        # Azure shared access signatures, whose parameter names are all short
+        "se",
+        "sp",
+        "sr",
+        "ss",
+        "st",
+        "sv",
+        "spr",
+        "srt",
+        "skoid",
+        "sktid",
+    }
+)
+"""Query or fragment parameter names that carry a credential.
+
+Matched as whole names, never as substrings, so an ordinary ``?series=`` or
+``?key=`` is untouched -- an S3 object key names the object, not the way in.
+"""
+
+_URL_PARAMETER: Final = re.compile(r"[?&#]([^\s=&#?]+)=")
 
 _MACHINE_PATH: Final = re.compile(
     r"""
@@ -186,11 +244,34 @@ class ArtifactProvenance:
             error=ArtifactProvenanceError,
             max_length=MAX_SOURCE_LABEL_LENGTH,
         )
+        for url in _REMOTE_URL.findall(label):
+            if _carries_credentials(url):
+                raise ArtifactProvenanceError(
+                    "artifact provenance source label carries a credential in one of its "
+                    "URLs; provenance records where bytes came from, not a way back in, "
+                    "and a stored signature stays usable until it expires"
+                )
         if _MACHINE_PATH.search(_REMOTE_URL.sub(" ", label)):
             raise ArtifactProvenanceError(
                 f"artifact provenance source label {label!r} contains a machine path; "
                 "record what the source was, not where one machine kept it"
             )
+
+
+def _carries_credentials(url: str) -> bool:
+    """Whether ``url`` embeds a secret rather than only naming a source.
+
+    A presigned URL and a basic-auth URL are both usable by whoever reads
+    them, so neither belongs in a durable record. The rejected value is never
+    echoed in the error: repeating a secret to report it is how it ends up in
+    a log.
+    """
+
+    authority = url.partition("://")[2].partition("/")[0]
+    userinfo, at_sign, _ = authority.rpartition("@")
+    if at_sign and ":" in userinfo:
+        return True
+    return any(name.lower() in _CREDENTIAL_PARAMETERS for name in _URL_PARAMETER.findall(url))
 
 
 __all__ = ["MAX_SOURCE_LABEL_LENGTH", "ArtifactProvenance", "ProvenanceKind"]
