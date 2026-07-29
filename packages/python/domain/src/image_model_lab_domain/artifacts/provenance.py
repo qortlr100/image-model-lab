@@ -106,9 +106,12 @@ _CREDENTIAL_PARAMETERS: Final = frozenset(
         "apikey",
         "auth",
         "authorization",
+        "bearer",
+        "bearer_token",
         "credential",
         "credentials",
         "id_token",
+        "jwt",
         "password",
         "passwd",
         "pwd",
@@ -119,18 +122,20 @@ _CREDENTIAL_PARAMETERS: Final = frozenset(
         "signature",
         "token",
         # AWS presigned
-        "x-amz-signature",
-        "x-amz-credential",
-        "x-amz-security-token",
+        "x_amz_signature",
+        "x_amz_credential",
+        "x_amz_security_token",
         # Google signed
-        "x-goog-signature",
-        "x-goog-credential",
+        "x_goog_signature",
+        "x_goog_credential",
     }
 )
 """Query or fragment parameter names that carry a credential by themselves.
 
 Matched as whole names, never as substrings, so an ordinary ``?series=`` or
 ``?key=`` is untouched -- an S3 object key names the object, not the way in.
+Hyphens are read as underscores, so one entry covers ``bearer-token`` and
+``bearer_token``, ``X-Amz-Signature`` and ``x_amz_signature``.
 
 Every name here is a secret on its own. An Azure shared access signature is
 covered by ``sig``, which each of its forms carries; its other fields --
@@ -258,7 +263,7 @@ class ArtifactProvenance:
             error=ArtifactProvenanceError,
             max_length=MAX_SOURCE_LABEL_LENGTH,
         )
-        if _MACHINE_PATH.search(_REMOTE_URL.sub(" ", text)):
+        if _MACHINE_PATH.search(_without_remote_urls(text)):
             # The label is not quoted back. A caller has what they typed, and
             # no message here is worth being the one that copies a secret out
             # of a label the credential scan did not recognise as a URL.
@@ -276,6 +281,26 @@ class ArtifactProvenance:
                     "URLs; provenance records where bytes came from, not a way back in, "
                     "and a stored signature stays usable until it expires"
                 )
+
+
+def _without_remote_urls(label: str) -> str:
+    """``label`` with its remote URLs removed, ready for the path scan.
+
+    The pattern finds candidates and a URL parser decides. A token only leaves
+    the label if it actually resolves to a host, so a malformed authority such
+    as ``https://note@host@/mnt/nas/image.png`` -- which has no hostname after
+    its last delimiter -- stays behind with its path for the scan to refuse.
+    """
+
+    def lift(match: re.Match[str]) -> str:
+        token = match.group()
+        try:
+            hostname = urlsplit(token).hostname
+        except ValueError:
+            return token
+        return " " if hostname else token
+
+    return _REMOTE_URL.sub(lift, label)
 
 
 def _carries_credentials(url: str) -> bool:
@@ -322,7 +347,7 @@ def _parameter_names(component: str) -> set[str]:
     for pair in _PARAMETER_SEPARATOR.split(component):
         name, assigned, _ = pair.partition("=")
         if assigned:
-            names.add(unquote(name).strip().lower())
+            names.add(unquote(name).strip().lower().replace("-", "_"))
     return names
 
 

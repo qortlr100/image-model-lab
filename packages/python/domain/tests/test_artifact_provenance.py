@@ -84,6 +84,7 @@ def test_rejects_claiming_both_an_in_system_parent_and_an_outside_source() -> No
         "https://example.org/a,staged=/mnt/nas/inbox/scan-012.tif",
         "https://example.org/a,/mnt/nas/scan-012.tif",
         "https://user@/mnt/nas/inbox/scan-012.tif",
+        "https://note@host@/mnt/nas/inbox/scan-012.tif",
         "https://example.org/C:\\Users\\me\\scan-012.tif",
         "https://example.org\\\\server\\share\\scan-012.tif",
     ],
@@ -139,6 +140,9 @@ def test_accepts_a_label_that_describes_a_real_external_source(label: str) -> No
         "s" * MAX_SOURCE_LABEL_LENGTH + " https://example.org/a.png?token=9f8d0c1a4b2e",
         "https://example.org/a.png?foo=1;token=9f8d0c1a4b2e",
         "https:///mnt/nas/inbox/a.png?token=9f8d0c1a4b2e",
+        "https://example.org/file?bearer_token=9f8d0c1a4b2e",
+        "https://example.org/file?bearer-token=9f8d0c1a4b2e",
+        "https://example.org/file?jwt=eyJhbGciOiJIUzI1NiJ9.e30.abc",
     ],
 )
 def test_rejects_a_source_label_carrying_a_credential(label: str) -> None:
