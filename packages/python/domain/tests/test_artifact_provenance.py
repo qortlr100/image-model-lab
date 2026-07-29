@@ -137,6 +137,8 @@ def test_accepts_a_label_that_describes_a_real_external_source(label: str) -> No
         " https://example.org/a.png?token=9f8d0c1a4b2e",
         "https://example.org/a.png?token=9f8d0c1a4b2e\n",
         "s" * MAX_SOURCE_LABEL_LENGTH + " https://example.org/a.png?token=9f8d0c1a4b2e",
+        "https://example.org/a.png?foo=1;token=9f8d0c1a4b2e",
+        "https:///mnt/nas/inbox/a.png?token=9f8d0c1a4b2e",
     ],
 )
 def test_rejects_a_source_label_carrying_a_credential(label: str) -> None:

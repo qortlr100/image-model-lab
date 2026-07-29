@@ -144,6 +144,18 @@ Matched as whole names, never as substrings, so an ordinary ``?series=`` or
 ``?key=`` is untouched -- an S3 object key names the object, not the way in.
 """
 
+_URL_LIKE: Final = re.compile(r"(?<![A-Za-z0-9])[a-z][a-z0-9+.-]*://\S+", re.IGNORECASE)
+"""Anything shaped like a URL, for the credential scan to look inside.
+
+Deliberately not :data:`_REMOTE_URL`, which answers the opposite question.
+Lifting has to be conservative -- it removes text from the path scan, so it
+must not swallow prose or a pasted path, and it stops at punctuation and
+demands a real authority. A credential scan has to be liberal for exactly
+those reasons reversed: ``?foo=1;token=...`` keeps its secret after the
+semicolon that ends a lift, and ``https:///mnt/a?token=...`` carries one even
+though no authority makes it a source worth lifting.
+"""
+
 _PARAMETER_SEPARATOR: Final = re.compile(r"[?&;]")
 
 _MACHINE_PATH: Final = re.compile(
@@ -252,14 +264,17 @@ class ArtifactProvenance:
             max_length=MAX_SOURCE_LABEL_LENGTH,
         )
         if _MACHINE_PATH.search(_REMOTE_URL.sub(" ", text)):
+            # The label is not quoted back. A caller has what they typed, and
+            # no message here is worth being the one that copies a secret out
+            # of a label the credential scan did not recognise as a URL.
             raise ArtifactProvenanceError(
-                f"artifact provenance source label {text!r} contains a machine path; "
-                "record what the source was, not where one machine kept it"
+                "artifact provenance source label contains a machine path; record what "
+                "the source was, not where one machine kept it"
             )
 
     @staticmethod
     def _reject_credentials(label: str) -> None:
-        for url in _REMOTE_URL.findall(label):
+        for url in _URL_LIKE.findall(label):
             if _carries_credentials(url):
                 raise ArtifactProvenanceError(
                     "artifact provenance source label carries a credential in one of its "
