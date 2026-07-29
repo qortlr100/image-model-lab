@@ -15,11 +15,15 @@ The lifecycle assumes at-least-once delivery in both directions:
   caller's decision, made from the job's current state and its idempotency
   key, not something the entity can guess.
 
-Cancellation is cooperative and therefore two-step. ``cancel_requested``
-records the intent; the job only reaches ``cancelled`` once nothing is running
+Cancelling depends on who holds the job. A queued job has no agent to
+cooperate with, so it is cancelled outright. Once an agent holds it,
+cancellation is cooperative and therefore two-step: ``cancel_requested``
+records the intent, and the job reaches ``cancelled`` when nothing is running
 for it any more. A job that finishes before the request is noticed still
 reports ``succeeded`` or ``failed``, because the work did happen and its
-outputs exist.
+outputs exist -- and that is exactly why a queued job never passes through
+``cancel_requested``. An outcome must not be reportable for work that was
+never handed to anyone.
 """
 
 from __future__ import annotations
@@ -66,7 +70,7 @@ EXECUTION_JOB_TRANSITIONS: Final[Mapping[ExecutionJobState, frozenset[ExecutionJ
     MappingProxyType(
         {
             ExecutionJobState.QUEUED: frozenset(
-                {ExecutionJobState.LEASED, ExecutionJobState.CANCEL_REQUESTED}
+                {ExecutionJobState.LEASED, ExecutionJobState.CANCELLED}
             ),
             ExecutionJobState.LEASED: frozenset(
                 {
@@ -205,21 +209,39 @@ class ExecutionJob:
 
         return self._become(ExecutionJobState.QUEUED)
 
-    def request_cancellation(self) -> ExecutionJob:
-        """Record that the job should stop at the next cooperative point.
+    def cancel(self) -> ExecutionJob:
+        """Cancel the job, immediately or cooperatively as its state allows.
+
+        A queued job is cancelled outright because no agent holds it. Once one
+        does, this records the request and the agent stops at its next
+        cooperative point.
 
         Raises:
             ExecutionJobError: if cancellation was already requested, or the
                 job has already reached an outcome.
         """
 
+        if self.state is ExecutionJobState.QUEUED:
+            return self.mark_cancelled()
+        return self.request_cancellation()
+
+    def request_cancellation(self) -> ExecutionJob:
+        """Record that the job should stop at the next cooperative point.
+
+        Raises:
+            ExecutionJobError: if no agent holds the job, if cancellation was
+                already requested, or if the job has already reached an
+                outcome.
+        """
+
         return self._become(ExecutionJobState.CANCEL_REQUESTED)
 
     def mark_cancelled(self) -> ExecutionJob:
-        """Complete a requested cancellation once nothing is running.
+        """Cancel a queued job, or complete a requested cancellation.
 
         Raises:
-            ExecutionJobError: if cancellation was not requested first.
+            ExecutionJobError: if an agent holds the job and cancellation was
+                not requested first.
         """
 
         return self._become(ExecutionJobState.CANCELLED)

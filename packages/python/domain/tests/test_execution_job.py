@@ -125,12 +125,40 @@ def test_a_lost_lease_returns_the_job_to_the_queue() -> None:
     assert requeued.is_claimable
 
 
-def test_cancellation_is_two_step_and_cooperative() -> None:
+def test_cancellation_is_two_step_and_cooperative_once_an_agent_holds_the_job() -> None:
     requested = job_in(ExecutionJobState.RUNNING).request_cancellation()
 
     assert requested.state is ExecutionJobState.CANCEL_REQUESTED
     assert not requested.is_terminal
     assert requested.mark_cancelled().state is ExecutionJobState.CANCELLED
+
+
+def test_a_queued_job_is_cancelled_outright() -> None:
+    """Nobody holds it, so there is nothing to cooperate with."""
+
+    cancelled = job_in(ExecutionJobState.QUEUED).cancel()
+
+    assert cancelled.state is ExecutionJobState.CANCELLED
+    assert cancelled.is_terminal
+
+
+@pytest.mark.parametrize("state", [ExecutionJobState.LEASED, ExecutionJobState.RUNNING])
+def test_cancelling_a_held_job_records_the_request(state: ExecutionJobState) -> None:
+    assert job_in(state).cancel().state is ExecutionJobState.CANCEL_REQUESTED
+
+
+def test_a_job_that_never_ran_cannot_report_an_execution_outcome() -> None:
+    """A queued job never reaches cancel_requested, the one state an outcome
+    can follow without the job having run."""
+
+    cancelled = job_in(ExecutionJobState.QUEUED).cancel()
+
+    with pytest.raises(ExecutionJobError):
+        cancelled.mark_succeeded()
+    with pytest.raises(ExecutionJobError):
+        cancelled.mark_failed()
+    with pytest.raises(ExecutionJobError):
+        job_in(ExecutionJobState.QUEUED).request_cancellation()
 
 
 def test_a_job_that_finished_before_the_cancellation_landed_still_reports_its_outcome() -> None:
