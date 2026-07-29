@@ -267,17 +267,22 @@ def _carries_credentials(url: str) -> bool:
     echoed in the error: repeating a secret to report it is how it ends up in
     a log.
 
-    Percent-encoding is undone first, because a reader decodes it too:
-    ``?access%5ftoken=`` is the same parameter as ``?access_token=`` and
-    ``user%3Apass@`` is the same credential as ``user:pass@``.
+    The URL is split first and each part decoded after, never the other way
+    round. A reader decodes too, so ``?access%5ftoken=`` is the same parameter
+    as ``?access_token=`` and ``user%3Apass@`` the same credential as
+    ``user:pass@`` -- but decoding the whole string first would invent
+    structure that is not there: ``curator:hun%2Fter2@host`` would appear to
+    end its authority at a slash inside the password, and ``?a=b%26token=x``
+    would appear to hold a parameter a client never sends.
     """
 
-    decoded = unquote(url)
-    authority = decoded.partition("://")[2].partition("/")[0]
+    authority = url.partition("://")[2].partition("/")[0]
     userinfo, at_sign, _ = authority.rpartition("@")
-    if at_sign and ":" in userinfo:
+    if at_sign and ":" in unquote(userinfo):
         return True
-    return any(name.lower() in _CREDENTIAL_PARAMETERS for name in _URL_PARAMETER.findall(decoded))
+    return any(
+        unquote(name).lower() in _CREDENTIAL_PARAMETERS for name in _URL_PARAMETER.findall(url)
+    )
 
 
 __all__ = ["MAX_SOURCE_LABEL_LENGTH", "ArtifactProvenance", "ProvenanceKind"]
