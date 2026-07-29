@@ -25,11 +25,17 @@ that finds the bytes again and re-verifies the digest returns the artifact to
 Every artifact also records where its bytes came from. Provenance is captured
 when the artifact is created, because the writer is the only one who knows it
 and no later pass can reconstruct it.
+
+It is a history rather than one record. Importing bytes that are already
+stored writes no second copy, so the second import has nowhere else to be
+recorded, and two sources of the same bytes can carry different licence
+terms. The history only ever grows: a record already written is never
+rewritten or dropped.
 """
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Iterable, Mapping
 from dataclasses import dataclass, replace
 from enum import StrEnum
 from types import MappingProxyType
@@ -73,14 +79,14 @@ class Artifact:
 
     Transitions return a new artifact rather than mutating this one, so a
     caller that still holds the old value keeps reading the state it checked.
-    The reference and the provenance are carried through unchanged: what the
-    bytes are and where they came from is settled when the artifact is
-    created, and only the control plane's knowledge of them moves.
+    The reference is carried through unchanged, and so is every provenance
+    record already written: what the bytes are is settled when the artifact is
+    created, and a state change is not a place to revise where they came from.
     """
 
     id: UUID
     reference: ArtifactReference
-    provenance: ArtifactProvenance
+    provenance: tuple[ArtifactProvenance, ...]
     state: ArtifactState = ArtifactState.PENDING
 
     def __post_init__(self) -> None:
@@ -91,12 +97,7 @@ class Artifact:
             field="artifact reference",
             error=ArtifactError,
         )
-        require_instance(
-            self.provenance,
-            expected=ArtifactProvenance,
-            field="artifact provenance",
-            error=ArtifactError,
-        )
+        object.__setattr__(self, "provenance", _validated_provenance(self.provenance))
         object.__setattr__(
             self,
             "state",
@@ -110,6 +111,27 @@ class Artifact:
         """Whether the bytes may be served or used as a run input."""
 
         return self.state is ArtifactState.AVAILABLE
+
+    @property
+    def origin(self) -> ArtifactProvenance:
+        """The record of the write that first put these bytes on NAS."""
+
+        return self.provenance[0]
+
+    def record_provenance(self, record: ArtifactProvenance) -> Artifact:
+        """Append another origin for the same bytes.
+
+        Importing bytes that are already stored does not write a second copy;
+        it adds where this copy also came from. Existing records are never
+        rewritten, so an artifact accumulates its sources and a licence audit
+        can see all of them.
+
+        Raises:
+            ArtifactError: if ``record`` is not an
+                :class:`ArtifactProvenance`, or is already recorded.
+        """
+
+        return replace(self, provenance=(*self.provenance, record))
 
     def _become(self, target: ArtifactState) -> Artifact:
         require_transition(
@@ -150,6 +172,41 @@ class Artifact:
         """
 
         return self._become(ArtifactState.QUARANTINED)
+
+
+def _validated_provenance(
+    records: Iterable[ArtifactProvenance],
+) -> tuple[ArtifactProvenance, ...]:
+    """Copy ``records`` into a tuple, rejecting an empty or repeated history.
+
+    The copy matters: a caller that kept a list could otherwise rewrite an
+    artifact's history through its own reference.
+    """
+
+    try:
+        ordered = tuple(records)
+    except TypeError:
+        raise ArtifactError(
+            "artifact provenance must be a sequence of provenance records, got "
+            f"{type(records).__name__}"
+        ) from None
+    if not ordered:
+        raise ArtifactError(
+            "an artifact must have at least one provenance record; bytes nobody can trace "
+            "cannot explain a training input or a run output"
+        )
+    seen: list[ArtifactProvenance] = []
+    for record in ordered:
+        require_instance(
+            record,
+            expected=ArtifactProvenance,
+            field="artifact provenance record",
+            error=ArtifactError,
+        )
+        if record in seen:
+            raise ArtifactError(f"artifact provenance record {record} is already recorded")
+        seen.append(record)
+    return ordered
 
 
 __all__ = ["ARTIFACT_TRANSITIONS", "Artifact", "ArtifactState"]

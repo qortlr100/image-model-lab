@@ -51,11 +51,11 @@ ILLEGAL = [
 
 
 def artifact_in(state: ArtifactState) -> Artifact:
-    return Artifact(id=uuid4(), reference=REFERENCE, provenance=PROVENANCE, state=state)
+    return Artifact(id=uuid4(), reference=REFERENCE, provenance=(PROVENANCE,), state=state)
 
 
 def test_a_new_artifact_is_pending_and_not_readable() -> None:
-    artifact = Artifact(id=uuid4(), reference=REFERENCE, provenance=PROVENANCE)
+    artifact = Artifact(id=uuid4(), reference=REFERENCE, provenance=(PROVENANCE,))
 
     assert artifact.state is ArtifactState.PENDING
     assert not artifact.is_readable
@@ -109,7 +109,7 @@ def test_rejects_every_transition_outside_the_table(state: ArtifactState, name: 
 
 
 def test_publish_makes_verified_bytes_readable() -> None:
-    published = Artifact(id=uuid4(), reference=REFERENCE, provenance=PROVENANCE).mark_available()
+    published = Artifact(id=uuid4(), reference=REFERENCE, provenance=(PROVENANCE,)).mark_available()
 
     assert published.state is ArtifactState.AVAILABLE
     assert published.is_readable
@@ -141,7 +141,7 @@ def test_accepts_the_plain_string_spelling_of_a_state() -> None:
     artifact = Artifact(
         id=uuid4(),
         reference=REFERENCE,
-        provenance=PROVENANCE,
+        provenance=(PROVENANCE,),
         state="available",  # type: ignore[arg-type]
     )
 
@@ -154,7 +154,7 @@ def test_rejects_a_value_that_is_not_a_state(state: object) -> None:
         Artifact(
             id=uuid4(),
             reference=REFERENCE,
-            provenance=PROVENANCE,
+            provenance=(PROVENANCE,),
             state=state,  # type: ignore[arg-type]
         )
 
@@ -162,18 +162,65 @@ def test_rejects_a_value_that_is_not_a_state(state: object) -> None:
 @pytest.mark.parametrize("artifact_id", ["not-a-uuid", str(UUID(int=1)), 1, None])
 def test_rejects_an_identifier_that_is_not_a_uuid(artifact_id: object) -> None:
     with pytest.raises(ArtifactError):
-        Artifact(id=artifact_id, reference=REFERENCE, provenance=PROVENANCE)  # type: ignore[arg-type]
+        Artifact(id=artifact_id, reference=REFERENCE, provenance=(PROVENANCE,))  # type: ignore[arg-type]
 
 
 @pytest.mark.parametrize("reference", ["nas://assets/original/c9/c9002e99", None])
 def test_rejects_a_reference_that_is_not_an_artifact_reference(reference: object) -> None:
     with pytest.raises(ArtifactError):
-        Artifact(id=uuid4(), reference=reference, provenance=PROVENANCE)  # type: ignore[arg-type]
+        Artifact(id=uuid4(), reference=reference, provenance=(PROVENANCE,))  # type: ignore[arg-type]
 
 
-@pytest.mark.parametrize("provenance", ["inbox import", None])
+@pytest.mark.parametrize("provenance", [(), "inbox import", None, PROVENANCE, (None,)])
 def test_an_artifact_cannot_exist_without_provenance(provenance: object) -> None:
     """Nothing later can reconstruct where bytes came from, so it is required now."""
 
     with pytest.raises(ArtifactError):
         Artifact(id=uuid4(), reference=REFERENCE, provenance=provenance)  # type: ignore[arg-type]
+
+
+def test_the_same_bytes_arriving_again_add_a_source_instead_of_a_copy() -> None:
+    """A duplicate import writes no second blob, so its origin has nowhere else to go."""
+
+    artifact = artifact_in(ArtifactState.AVAILABLE)
+    second = ArtifactProvenance(
+        kind=ProvenanceKind.INGESTED,
+        recorded_at=datetime(2026, 8, 2, 14, 30, tzinfo=UTC),
+        source_label="donated archive, roll 4",
+    )
+
+    updated = artifact.record_provenance(second)
+
+    assert updated.provenance == (PROVENANCE, second)
+    assert updated.origin == PROVENANCE
+    assert updated.reference == artifact.reference
+    assert artifact.provenance == (PROVENANCE,)
+
+
+def test_provenance_is_never_rewritten_or_dropped() -> None:
+    artifact = artifact_in(ArtifactState.PENDING)
+
+    with pytest.raises(ArtifactError):
+        artifact.record_provenance(PROVENANCE)
+    with pytest.raises(ArtifactError):
+        artifact.record_provenance("donated archive")  # type: ignore[arg-type]
+
+
+def test_a_state_change_carries_the_whole_history() -> None:
+    second = ArtifactProvenance(
+        kind=ProvenanceKind.DERIVED,
+        recorded_at=datetime(2026, 8, 2, 14, 30, tzinfo=UTC),
+        source_id=uuid4(),
+    )
+    artifact = artifact_in(ArtifactState.PENDING).record_provenance(second)
+
+    assert artifact.mark_available().quarantine().provenance == (PROVENANCE, second)
+
+
+def test_a_caller_cannot_rewrite_the_history_it_handed_over() -> None:
+    given = [PROVENANCE]
+    artifact = Artifact(id=uuid4(), reference=REFERENCE, provenance=given)  # type: ignore[arg-type]
+
+    given.clear()
+
+    assert artifact.provenance == (PROVENANCE,)

@@ -14,11 +14,11 @@ a different reference:
 * ``derived`` -- produced from another artifact, named by that artifact's id;
 * ``run_output`` -- written by one execution, named by that run attempt's id.
 
-A machine path anywhere in a label is refused, not only one the label starts
-with, because ``copied from /mnt/nas/inbox/a.png`` leaks the same mount root
-that a bare path would. Where a file happened to sit on one machine is not
-what the source was, and a mount path must not reach the domain or the
-database. A remote URL is still a usable label.
+A machine path anywhere in a label is refused, however it is introduced,
+because ``copied from /mnt/nas/inbox/a.png`` and ``source=/mnt/...`` leak the
+same mount root that a bare path would. Where a file happened to sit on one
+machine is not what the source was, and a mount path must not reach the
+domain or the database. A remote URL is still a usable label.
 """
 
 from __future__ import annotations
@@ -39,18 +39,23 @@ MAX_SOURCE_LABEL_LENGTH: Final = 500
 
 _MACHINE_PATH: Final = re.compile(
     r"""
-      (?:^|\s)/                    # a POSIX absolute path, alone or inside a sentence
+      (?<![A-Za-z0-9:/])/          # a POSIX absolute path, wherever it starts
     | \\                           # any backslash: a Windows separator or UNC prefix
     | (?<![A-Za-z])[A-Za-z]:[\\/]  # a Windows drive, but not a URL scheme's ':/'
     | file://                      # a local path wearing a URL
     """,
     re.VERBOSE | re.IGNORECASE,
 )
-"""A machine path anywhere in a label, not only at its start.
+"""A machine path anywhere in a label, however it is introduced.
 
-``copied from /mnt/nas/inbox/a.png`` leaks the same mount root that a bare
-path would. A remote URL is left alone: its slashes never follow whitespace,
-so ``https://example.org/gallery/42`` still describes a real external source.
+``copied from /mnt/nas/inbox/a.png``, ``source=/mnt/...`` and
+``(/srv/import/a.png)`` all leak the same mount root that a bare path would,
+so a leading slash is judged by what precedes it rather than by whitespace: a
+path starts where the preceding character is not part of one.
+
+That leaves a remote URL alone. Its slashes follow a scheme's colon, another
+slash, or a hostname character, so ``https://example.org/gallery/42`` and a
+date like ``2026/07`` still describe real external sources.
 """
 
 

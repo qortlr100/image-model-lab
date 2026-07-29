@@ -309,7 +309,12 @@ def _validated_items(items: Iterable[SnapshotItem]) -> tuple[SnapshotItem, ...]:
     to reorder a sealed snapshot's items through its own reference.
     """
 
-    ordered = tuple(items)
+    try:
+        ordered = tuple(items)
+    except TypeError:
+        raise DatasetSnapshotError(
+            f"dataset snapshot items must be a sequence, got {type(items).__name__}"
+        ) from None
     seen: set[UUID] = set()
     for item in ordered:
         require_instance(
