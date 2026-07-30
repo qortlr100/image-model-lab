@@ -26,10 +26,14 @@ M1-03에서 다음을 결정해야 했다.
 
 **상태는 CHECK가 붙은 text이며 PostgreSQL `ENUM` type을 쓰지 않는다.** 허용 값 목록과 column 폭은 domain 상수와 `StrEnum`에서 생성한다. 배포된 제약과 domain enum의 일치는 live database를 읽는 integration test가 검사하므로, 상태를 추가하면 migration을 쓸 때까지 test가 실패한다.
 
-**모든 write는 caller가 읽은 state(`expected_state`)와 저장된 state가 같은지, 그리고 그 state가 쓰려는 state로 갈 수 있는지 함께 확인한다.** caller는 자신이 읽은 state를 기준으로 entity에게 다음 값을 물어보므로, 그 사이에 record가 움직였다면 그 답은 이미 지나간 state에 대한 것이다. `SELECT ... FOR UPDATE`만으로는 부족하다. 두 번째 writer는 lock을 기다린 뒤 새 row를 보고도 자신의 낡은 결정을 그 위에 쓰게 된다. 그래서 저장된 state와 들어온 state를 domain의 전이표(`ARTIFACT_TRANSITIONS` 등)에 대조하고, 지금 row가 그 state로 갈 수 없으면 거부한다. 검사 대상은 target이며 caller가 떠났다고 믿은 source는 아니다. 그 한계는 Consequences에 적어 두었다.
+**모든 write는 caller가 읽은 state(`expected_state`)와 저장된 state가 같은지, 그리고 그 state가 쓰려는 state로 갈 수 있는지 함께 확인한다.** caller는 자신이 읽은 state를 기준으로 entity에게 다음 값을 물어보므로, 그 사이에 record가 움직였다면 그 답은 이미 지나간 state에 대한 것이다. `SELECT ... FOR UPDATE`만으로는 부족하다. 두 번째 writer는 lock을 기다린 뒤 새 row를 보고도 자신의 낡은 결정을 그 위에 쓰게 된다.
+
+그래서 두 가지를 함께 검사한다. 저장된 state가 caller가 읽은 `expected_state`와 같은지, 그리고 그 state가 domain 전이표(`ARTIFACT_TRANSITIONS` 등)에서 쓰려는 state로 갈 수 있는지다. 둘 다 필요하다. target만 보면, 쓰려는 state가 "지금" row에서 정당하게 따라오는 경우 낡은 write가 통과한다. `pending`으로 읽고 검증한 artifact를 `missing`이 된 row에 쓰면 `missing → available`이 정당한 repair이므로 받아들여지는 식이다. expected state만 보면 domain이 무엇을 허용하는지를 caller의 주장에 맡기게 되며, 직접 조립한 entity가 그것을 어길 수 있다.
+
+expected state가 잡지 못하는 범위는 Consequences에 적어 두었다.
 
 - 저장된 state가 종료 상태면 `RecordIsFinal`이다. 다시 읽어도 달라지지 않는다.
-- 종료 상태가 아니지만 전이가 허용되지 않으면 `RecordChangedElsewhere`이다. 다시 읽고 다시 판단하면 성공할 수 있다.
+- 종료 상태가 아니면서 저장된 state가 `expected_state`와 다르거나, 그 state에서 쓰려는 state로 갈 수 없으면 `RecordChangedElsewhere`이다. 다시 읽고 다시 판단하면 성공할 수 있다.
 
 lock을 잡은 read는 identity map을 갱신한다(`populate_existing`). 같은 session이 앞서 그 row를 읽었다면 `SELECT ... FOR UPDATE`만으로는 이미 load된 속성이 다시 채워지지 않으므로, guard가 database의 state가 아니라 caller가 이미 알고 있던 state를 검사하게 된다.
 
@@ -68,7 +72,7 @@ lock을 잡은 read는 identity map을 갱신한다(`populate_existing`). 같은
 
 ## Revisit triggers
 
-- write가 expected source state 또는 revision을 싣게 한다. cycle이 있는 lifecycle의 낡은 write와 state를 유지하는 동시 편집이 모두 여기에 달려 있다. expected source state는 column이 필요 없고 revision은 필요하다. 어느 쪽이든 `image_model_lab_application.ports`의 contract 변경이다.
+- write가 revision을 싣게 한다. expected source state는 이미 구현돼 있으나 저장된 값이 caller가 읽은 값과 같아진 경우는 잡지 못하므로, 자기 자신에게 도달할 수 있는 state의 낡은 write(artifact의 `available`·`missing`, job의 `queued`·`leased`·`running`)와 `draft → draft` 동시 편집이 여기에 달려 있다. aggregate table에 column 추가와 `image_model_lab_application.ports`의 contract 변경이 필요하다.
 - job lease 조회가 `SELECT ... FOR UPDATE SKIP LOCKED`와 partial index를 요구한다.
 - 한 aggregate의 child collection이 커져 전체 rewrite가 비용이 된다.
 - 여러 use case가 같은 transaction 조립 코드를 반복해 Unit of Work가 실제 중복 제거가 된다.
