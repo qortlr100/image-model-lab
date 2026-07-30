@@ -79,8 +79,10 @@ def test_a_lease_and_its_loss_are_both_stored(session: Session) -> None:
     repository.add(stored)
 
     leased = stored.lease()
-    repository.update(leased)
-    repository.update(leased.start().release())
+    repository.update(leased, expected_state=stored.state)
+    running = leased.start()
+    repository.update(running, expected_state=leased.state)
+    repository.update(running.release(), expected_state=running.state)
     session.expunge_all()
 
     assert repository.get(stored.id).state is ExecutionJobState.QUEUED
@@ -102,13 +104,13 @@ def test_a_job_outcome_does_not_depend_on_which_report_was_written_last(
     stored = factories.job()
     repository.add(stored)
     leased = stored.lease()
-    repository.update(leased)
+    repository.update(leased, expected_state=stored.state)
     running = leased.start()
-    repository.update(running)
-    repository.update(running.mark_failed())
+    repository.update(running, expected_state=leased.state)
+    repository.update(running.mark_failed(), expected_state=running.state)
 
     with pytest.raises(RecordIsFinal):
-        repository.update(running.mark_succeeded())
+        repository.update(running.mark_succeeded(), expected_state=running.state)
 
 
 def test_a_stale_job_state_is_refused_rather_than_written(session: Session) -> None:
@@ -118,11 +120,11 @@ def test_a_stale_job_state_is_refused_rather_than_written(session: Session) -> N
     stored = factories.job()
     repository.add(stored)
     leased = stored.lease()
-    repository.update(leased)
-    repository.update(leased.start())
+    repository.update(leased, expected_state=stored.state)
+    repository.update(leased.start(), expected_state=leased.state)
 
     with pytest.raises(RecordChangedElsewhere):
-        repository.update(leased)
+        repository.update(leased, expected_state=stored.state)
 
 
 def test_an_attempt_survives_a_round_trip_unchanged(session: Session) -> None:

@@ -82,7 +82,7 @@ def test_a_state_change_is_stored(session: Session) -> None:
     stored = factories.artifact()
     artifacts.add(stored)
 
-    artifacts.update(stored.mark_available())
+    artifacts.update(stored.mark_available(), expected_state=stored.state)
     session.expunge_all()
 
     assert artifacts.get(stored.id).state is ArtifactState.AVAILABLE
@@ -93,7 +93,7 @@ def test_a_state_change_does_not_disturb_the_provenance(session: Session) -> Non
     stored = factories.artifact(provenance=(factories.ingested(),))
     artifacts.add(stored)
 
-    artifacts.update(stored.quarantine())
+    artifacts.update(stored.quarantine(), expected_state=stored.state)
     session.expunge_all()
 
     assert artifacts.get(stored.id).provenance == stored.provenance
@@ -105,7 +105,7 @@ def test_a_further_import_is_appended(session: Session) -> None:
     artifacts.add(stored)
 
     reimported = stored.record_provenance(factories.ingested("re-import from the 2024 archive"))
-    artifacts.update(reimported)
+    artifacts.update(reimported, expected_state=stored.state)
     session.expunge_all()
 
     assert artifacts.get(stored.id).provenance == reimported.provenance
@@ -118,7 +118,10 @@ def test_provenance_cannot_be_shortened(session: Session) -> None:
     artifacts.add(stored)
 
     with pytest.raises(RecordHistoryRewritten):
-        artifacts.update(factories.artifact(artifact_id=stored.id, provenance=(origin,)))
+        artifacts.update(
+            factories.artifact(artifact_id=stored.id, provenance=(origin,)),
+            expected_state=stored.state,
+        )
 
 
 def test_a_recorded_origin_cannot_be_replaced(session: Session) -> None:
@@ -135,7 +138,7 @@ def test_a_recorded_origin_cannot_be_replaced(session: Session) -> None:
     )
 
     with pytest.raises(RecordHistoryRewritten):
-        artifacts.update(rewritten)
+        artifacts.update(rewritten, expected_state=stored.state)
 
 
 def test_an_update_does_not_re_address_the_stored_artifact(session: Session) -> None:
@@ -150,7 +153,8 @@ def test_an_update_does_not_re_address_the_stored_artifact(session: Session) -> 
             artifact_id=stored.id,
             reference_=factories.reference(key="original/somewhere/else"),
             provenance=stored.provenance,
-        )
+        ),
+        expected_state=stored.state,
     )
     session.expunge_all()
 
@@ -171,10 +175,13 @@ def test_a_quarantined_artifact_takes_no_new_provenance(session: Session) -> Non
     artifacts = repository(session)
     stored = factories.artifact()
     artifacts.add(stored)
-    artifacts.update(stored.quarantine())
+    artifacts.update(stored.quarantine(), expected_state=stored.state)
 
     with pytest.raises(RecordIsFinal):
-        artifacts.update(stored.record_provenance(factories.ingested("a later import")))
+        artifacts.update(
+            stored.record_provenance(factories.ingested("a later import")),
+            expected_state=stored.state,
+        )
 
 
 def test_a_quarantined_artifact_is_not_returned_to_an_earlier_state(session: Session) -> None:
@@ -182,11 +189,11 @@ def test_a_quarantined_artifact_is_not_returned_to_an_earlier_state(session: Ses
     stored = factories.artifact()
     artifacts.add(stored)
     available = stored.mark_available()
-    artifacts.update(available)
-    artifacts.update(available.quarantine())
+    artifacts.update(available, expected_state=stored.state)
+    artifacts.update(available.quarantine(), expected_state=available.state)
 
     with pytest.raises(RecordIsFinal):
-        artifacts.update(available)
+        artifacts.update(available, expected_state=stored.state)
 
 
 def test_a_stale_state_is_refused_rather_than_written(session: Session) -> None:
@@ -196,13 +203,13 @@ def test_a_stale_state_is_refused_rather_than_written(session: Session) -> None:
     stored = factories.artifact()
     artifacts.add(stored)
     available = stored.mark_available()
-    artifacts.update(available)
-    artifacts.update(available.mark_missing())
+    artifacts.update(available, expected_state=stored.state)
+    artifacts.update(available.mark_missing(), expected_state=available.state)
 
     with pytest.raises(RecordChangedElsewhere):
-        artifacts.update(stored)
+        artifacts.update(stored, expected_state=stored.state)
 
 
 def test_updating_an_artifact_that_was_never_stored_is_an_error(session: Session) -> None:
     with pytest.raises(RecordNotFound):
-        repository(session).update(factories.artifact())
+        repository(session).update(factories.artifact(), expected_state=ArtifactState.PENDING)

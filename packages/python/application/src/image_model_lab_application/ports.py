@@ -25,14 +25,18 @@ these errors worth catching: on ``RecordAlreadyExists`` a use case can look up
 the record that already holds the identity and acknowledge the duplicate, and
 whatever it had written earlier in the same transaction is still there.
 
-A write says which state it is going to, never which state it is coming from,
-so two kinds of stale write are not detected. One is a change that leaves the
-state where it was -- two callers editing one draft snapshot's items. The other
-is a state that cycles back: an artifact verified while ``pending`` is written
-as ``available``, and ``missing -> available`` is a legal repair, so the write
-lands even if the bytes were observed absent in between. Both need an expected
-source state or revision travelling with the write, which these ports do not
-carry.
+Every write therefore says which state it is coming from, as ``expected_state``:
+the state the caller read before it asked the entity for the next value. A
+target check alone is not enough, because a lifecycle can cycle back to a state
+the stale target legitimately follows from -- an artifact verified while
+``pending`` is written as ``available``, and ``missing -> available`` is a valid
+repair, so without the source state a pre-``missing`` verification would mark
+absent bytes readable. Pass the state you read, not the state you computed.
+
+One stale write is still not detected: a change that leaves the state where it
+was, such as two callers editing one draft snapshot's items. Both hold
+``draft``, so the expected state matches for each. Catching that needs a
+revision rather than a state, which these ports do not carry; see ADR-0005.
 """
 
 from __future__ import annotations
@@ -40,7 +44,16 @@ from __future__ import annotations
 from typing import Protocol
 from uuid import UUID
 
-from image_model_lab_domain import Artifact, DatasetSnapshot, ExecutionJob, RunAttempt
+from image_model_lab_domain import (
+    Artifact,
+    ArtifactState,
+    DatasetSnapshot,
+    DatasetSnapshotState,
+    ExecutionJob,
+    ExecutionJobState,
+    RunAttempt,
+    RunAttemptState,
+)
 
 
 class ArtifactRepository(Protocol):
@@ -65,8 +78,15 @@ class ArtifactRepository(Protocol):
         """
         ...
 
-    def update(self, artifact: Artifact) -> None:
+    def update(self, artifact: Artifact, *, expected_state: ArtifactState) -> None:
         """Store an artifact's new state and any provenance it has gained.
+
+        ``expected_state`` is the state the artifact was read in. It matters
+        most here: ``missing -> available`` is a legal repair, so a verification
+        made while the artifact was ``pending`` would otherwise be accepted
+        after the bytes had been observed absent, marking them readable on
+        evidence that predates the observation. A row that has cycled back to
+        the value that was read is still not caught.
 
         The reference is not rewritten: an artifact's address, digest, size
         and media type are what identify it, so a write that changed them
@@ -78,8 +98,8 @@ class ArtifactRepository(Protocol):
                 contradict the digest that identifies them, so it takes no new
                 origin and never returns to a usable state; a good copy is
                 published as a new artifact.
-            RecordChangedElsewhere: if the stored state does not become the
-                state being written.
+            RecordChangedElsewhere: if the stored state is not
+                ``expected_state``, or does not become the state being written.
             RecordHistoryRewritten: if the provenance shrank, or a record
                 already stored is not the one being written back.
         """
@@ -108,16 +128,23 @@ class ExecutionJobRepository(Protocol):
         """
         ...
 
-    def update(self, job: ExecutionJob) -> None:
+    def update(self, job: ExecutionJob, *, expected_state: ExecutionJobState) -> None:
         """Store a job's new state.
+
+        ``expected_state`` is the state the job was read in, and the lease
+        protocol needs it: ``queued -> leased -> running -> queued`` returns to
+        ``queued`` when a lease is lost, so a claim from an agent that read the
+        earlier ``queued`` would otherwise still be accepted and two agents
+        would each believe they hold the lease.
 
         Raises:
             RecordNotFound: if no job has that id.
             RecordIsFinal: if the stored job already reached an outcome.
-            RecordChangedElsewhere: if the stored state does not become the
-                state being written. Two agents can report different outcomes
-                for one job, so without this the outcome would be whichever
-                report was written last.
+            RecordChangedElsewhere: if the stored state is not
+                ``expected_state``, or does not become the state being written.
+                Two agents can report different outcomes for one job, so
+                without this the outcome would be whichever report was written
+                last.
         """
         ...
 
@@ -152,17 +179,26 @@ class RunAttemptRepository(Protocol):
         """
         ...
 
-    def complete(self, attempt: RunAttempt) -> None:
+    def complete(
+        self, attempt: RunAttempt, *, expected_state: RunAttemptState = RunAttemptState.RUNNING
+    ) -> None:
         """Record how a running attempt ended.
 
         An attempt moves once. There is no method that rewrites a completed
         one, because its timeline and outputs are the evidence for a finished
         run and a retry is the next attempt instead.
 
+        ``expected_state`` defaults to ``running`` because that is the only
+        state an attempt can be completed from -- this lifecycle has no cycles,
+        so unlike the other ports there is nothing else a caller could have
+        read. It is accepted for uniformity, so every write states its
+        precondition the same way.
+
         Raises:
             RecordNotFound: if no attempt has that id.
             RecordIsFinal: if the stored attempt has already ended.
-            RecordChangedElsewhere: if the attempt being written has not ended.
+            RecordChangedElsewhere: if the stored state is not
+                ``expected_state``, or the attempt being written has not ended.
         """
         ...
 
@@ -195,16 +231,25 @@ class DatasetSnapshotRepository(Protocol):
         """
         ...
 
-    def update(self, snapshot: DatasetSnapshot) -> None:
+    def update(self, snapshot: DatasetSnapshot, *, expected_state: DatasetSnapshotState) -> None:
         """Store a snapshot's new state, and its items while it is a draft.
+
+        This lifecycle has no cycles, so ``expected_state`` adds one thing over
+        the target check: it tells a caller whose transition someone else
+        already performed, instead of accepting the write as a no-op.
+
+        It does not make concurrent item edits safe. Two callers editing one
+        draft both read ``draft``, so the expected state matches for each and
+        the second still replaces the first's items -- that needs a revision,
+        not a state. See ADR-0005.
 
         Raises:
             RecordNotFound: if no snapshot has that id.
             RecordIsFinal: if the stored snapshot is sealed or rejected.
-            RecordChangedElsewhere: if the stored state does not become the
-                state being written -- notably a stale draft written over a
-                snapshot that has begun validating, which would reopen the item
-                list validation froze.
+            RecordChangedElsewhere: if the stored state is not
+                ``expected_state``, or does not become the state being written
+                -- notably a stale draft written over a snapshot that has begun
+                validating, which would reopen the item list validation froze.
         """
         ...
 

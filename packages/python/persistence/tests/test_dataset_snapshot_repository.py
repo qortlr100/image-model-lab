@@ -55,7 +55,7 @@ def test_a_draft_may_have_its_items_replaced(session: Session) -> None:
 
     kept = stored.items[1]
     reordered = stored.reorder([kept.asset_revision_id, stored.items[0].asset_revision_id])
-    snapshots.update(reordered)
+    snapshots.update(reordered, expected_state=stored.state)
     session.expunge_all()
 
     assert snapshots.get(stored.id).items == reordered.items
@@ -67,7 +67,7 @@ def test_an_item_can_be_dropped_from_a_draft(session: Session) -> None:
     snapshots.add(stored)
 
     trimmed = stored.remove_item(stored.items[0].asset_revision_id)
-    snapshots.update(trimmed)
+    snapshots.update(trimmed, expected_state=stored.state)
     session.expunge_all()
 
     assert snapshots.get(stored.id).items == trimmed.items
@@ -78,10 +78,13 @@ def test_sealing_stores_the_manifest_and_the_instant(session: Session) -> None:
     stored = factories.snapshot(items=(factories.item(),))
     snapshots.add(stored)
     validating = stored.begin_validation()
-    snapshots.update(validating)
+    snapshots.update(validating, expected_state=stored.state)
 
     manifest = factories.reference(key=f"{stored.id}/manifest.json")
-    snapshots.update(validating.seal(manifest=manifest, sealed_at=factories.ENDED_AT))
+    snapshots.update(
+        validating.seal(manifest=manifest, sealed_at=factories.ENDED_AT),
+        expected_state=validating.state,
+    )
     session.expunge_all()
 
     read = snapshots.get(stored.id)
@@ -97,15 +100,15 @@ def test_a_sealed_snapshot_is_never_written_again(session: Session) -> None:
     stored = factories.snapshot(items=(factories.item(),))
     snapshots.add(stored)
     validating = stored.begin_validation()
-    snapshots.update(validating)
+    snapshots.update(validating, expected_state=stored.state)
     sealed = validating.seal(
         manifest=factories.reference(key=f"{stored.id}/manifest.json"),
         sealed_at=factories.ENDED_AT,
     )
-    snapshots.update(sealed)
+    snapshots.update(sealed, expected_state=validating.state)
 
     with pytest.raises(RecordIsFinal):
-        snapshots.update(sealed)
+        snapshots.update(sealed, expected_state=validating.state)
 
 
 def test_a_rejected_snapshot_is_never_written_again(session: Session) -> None:
@@ -113,10 +116,10 @@ def test_a_rejected_snapshot_is_never_written_again(session: Session) -> None:
     stored = factories.snapshot(items=(factories.item(),))
     snapshots.add(stored)
     rejected = stored.reject()
-    snapshots.update(rejected)
+    snapshots.update(rejected, expected_state=stored.state)
 
     with pytest.raises(RecordIsFinal):
-        snapshots.update(rejected)
+        snapshots.update(rejected, expected_state=stored.state)
 
 
 def test_validation_freezes_the_items_that_get_sealed(session: Session) -> None:
@@ -127,13 +130,14 @@ def test_validation_freezes_the_items_that_get_sealed(session: Session) -> None:
     stored = factories.snapshot(items=items)
     snapshots.add(stored)
     validating = stored.begin_validation()
-    snapshots.update(validating)
+    snapshots.update(validating, expected_state=stored.state)
 
     snapshots.update(
         validating.seal(
             manifest=factories.reference(key=f"{stored.id}/manifest.json"),
             sealed_at=factories.ENDED_AT,
-        )
+        ),
+        expected_state=validating.state,
     )
     session.expunge_all()
 
@@ -153,12 +157,12 @@ def test_a_validating_snapshot_is_not_returned_to_draft(session: Session) -> Non
     snapshots = repository(session)
     stored = factories.snapshot(items=(factories.item(),))
     snapshots.add(stored)
-    snapshots.update(stored.begin_validation())
+    snapshots.update(stored.begin_validation(), expected_state=stored.state)
 
     with pytest.raises(RecordChangedElsewhere):
-        snapshots.update(stored.add_item(factories.item()))
+        snapshots.update(stored.add_item(factories.item()), expected_state=stored.state)
 
 
 def test_updating_a_snapshot_that_was_never_stored_is_an_error(session: Session) -> None:
     with pytest.raises(RecordNotFound):
-        repository(session).update(factories.snapshot())
+        repository(session).update(factories.snapshot(), expected_state=DatasetSnapshotState.DRAFT)

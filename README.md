@@ -142,7 +142,7 @@ docs/
 - 모든 write는 지금 저장된 state가 그 write를 허용하는지 domain 전이표에 대조합니다. `FOR UPDATE`만으로는 낡은 결정이 새 row 위에 쓰이는 것을 막지 못하므로, 현재 row가 갈 수 없는 state를 쓰려는 write는 `RecordIsFinal`(종료 상태) 또는 `RecordChangedElsewhere`(다시 읽으면 성공 가능)로 거부됩니다. lock을 잡은 read는 identity map을 갱신해 caller가 이미 알던 state가 아니라 database의 state를 검사합니다.
 - 완료된 `RunAttempt`, sealed/rejected `DatasetSnapshot`, quarantine된 `Artifact`, 이미 기록된 provenance는 그래서 덮어써지지 않습니다.
 - insert는 savepoint 안에서 실행되므로 `RecordAlreadyExists`를 받은 caller가 같은 transaction에서 기존 record를 조회해 중복을 확인할 수 있습니다.
-- guard가 검사하는 것은 target이며 caller가 떠났다고 믿은 source는 아닙니다. 그래서 state를 유지하는 동시 편집(같은 draft snapshot의 item)과 state가 되돌아오는 cycle(artifact의 `available ↔ missing`, job의 `queued → leased → running → queued`)에서 낡은 write가 통과합니다. 두 경우 모두 write가 expected source state를 실어야 잡히며, 근거와 범위는 [ADR-0005](docs/adr/0005-relational-mapping-and-repository-boundary.md)의 Consequences에 있습니다.
+- write는 caller가 읽은 state를 `expected_state`로 함께 전달합니다. target만 검사하면 `missing → available`처럼 정당한 전이를 타고 낡은 결정이 통과하기 때문입니다. 다만 expected state는 "읽은 값이 아직 그 값인가"만 말할 수 있으므로, row가 그 값으로 돌아와 있는 write는 여전히 통과합니다(움직이지 않은 `draft → draft` 편집, 한 바퀴 돈 `queued → leased → running → queued`). 이 경우들은 revision이 필요하며 범위는 [ADR-0005](docs/adr/0005-relational-mapping-and-repository-boundary.md)의 Consequences에 있습니다.
 - 상태 column의 허용 값과 column 폭은 domain 상수에서 생성되고, 배포된 CHECK 제약이 domain enum과 일치하는지는 live database를 읽는 test가 검사합니다.
 
 근거와 대안은 [ADR-0005](docs/adr/0005-relational-mapping-and-repository-boundary.md)에 있습니다.

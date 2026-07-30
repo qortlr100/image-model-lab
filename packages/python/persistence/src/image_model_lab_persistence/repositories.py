@@ -11,46 +11,46 @@ one that surfaces at commit time with no context left about which write caused
 it. Inserts flush inside a savepoint, because "already exists" is only useful
 if the caller still has a transaction to look the existing record up in.
 
-Every write is guarded beyond what the constraints say, and the guard is
-always the same question: does the *stored* state still allow the write the
-caller decided on?
+Every write is guarded beyond what the constraints say, because a caller reads
+an aggregate, asks the entity for the next value, and writes that value back --
+and the entity was asked about the state the caller read. If something moved
+the record in between, that answer is about a state it has already left.
 
-It has to be asked, because a caller reads an aggregate, asks the entity for
-the next value, and writes that value back -- and the entity was asked about
-the state the caller read. If something moved the record in between, that
-answer is about a state the record has already left.
+The guard asks two questions. Is the row still in the state the caller read,
+which it passes as ``expected_state``? And may that state become the one being
+written?
 
-Two things have to be true for the guard to mean anything, and neither is
+Both are needed. Checking only the target lets a stale write through wherever
+the state it is going to legitimately follows from where the row happens to be
+now, even though it does not follow from where the caller was. An artifact read
+as ``pending`` and verified is written as ``available``; if the row meanwhile
+went ``available`` then ``missing``, ``missing -> available`` is a valid repair,
+so the verification is accepted after the bytes were observed gone. For jobs the
+same check is what stops two agents that both read one ``queued`` job from both
+claiming it: the second finds ``leased``. And checking only the expected state
+would trust the caller about what the domain allows, which a hand-built entity
+can get wrong.
+
+Two more things have to be true for any of it to mean anything, and neither is
 free. The row is read ``FOR UPDATE``, so a second writer queues rather than
 racing. And that read repopulates the row, because a session that loaded the
 record earlier holds it in its identity map, and a lock taken over a cached
 object would have the guard checking the state the caller already knew instead
 of the state in the database.
 
-The transition tables are the domain's, not a copy. A state that becomes
-final, or a move that stops being allowed, tightens these guards without
-anyone having to remember they are here.
+The transition tables are the domain's, not a copy. A state that becomes final,
+or a move that stops being allowed, tightens these guards without anyone having
+to remember they are here.
 
-What the guard checks is the *target*: may the row, as it stands now, become
-the state being written? It never learns which state the caller believed it was
-leaving, because a transition returns a new entity and the old state is not
-carried on it. Two things follow, and neither is caught:
-
-* a change that keeps the state where it was. Two callers editing one draft
-  snapshot both hold ``draft``, so the second is allowed and replaces the
-  first's items.
-* a state that cycles back to one the stale target follows from. An artifact
-  read as ``pending`` and verified is written as ``available``; if the row
-  meanwhile went ``available`` and then ``missing``, ``missing -> available``
-  is a legal repair, so the write is accepted and bytes observed absent are
-  marked readable on the strength of a verification that predates the
-  observation. A job is the same shape: ``queued -> leased -> running ->
-  queued`` returns to ``queued``, so a lease claim from an agent that read the
-  earlier ``queued`` is still accepted after the job was released.
-
-Both need the write to say what state it is coming from, which the ports do not
-carry. See ADR-0005; the second is why the artifact and job lifecycles are the
-ones that matter here -- snapshots and attempts have no cycles.
+An expected state can only say "the value I read is still the value in the row",
+so one family of stale writes is still not caught: any where the row is back at
+that value. That covers a change which never moved the state -- two callers
+editing one draft snapshot both read ``draft`` -- and a cycle that has come all
+the way round, which is why the artifact case above is caught (``pending`` read,
+``missing`` stored) while ``queued -> leased -> running -> queued`` is not. The
+states reachable from themselves are ``available`` and ``missing`` for
+artifacts, and ``queued``, ``leased`` and ``running`` for jobs. Closing those
+needs a revision rather than a state; see ADR-0005.
 """
 
 from __future__ import annotations
@@ -134,12 +134,18 @@ def _require_writable[StateT: StrEnum](
     subject: str,
     identity: UUID,
     stored: StateT,
+    expected: StateT,
     incoming: StateT,
     transitions: Mapping[StateT, frozenset[StateT]],
     final_note: str,
     allow_unchanged: bool,
 ) -> None:
-    """Check the stored state still permits the state the caller decided on.
+    """Check the row is where the caller left it and may go where it is sent.
+
+    ``expected`` is the state the caller read. Comparing it with ``stored`` is
+    what catches a stale write whose target the current row happens to permit,
+    which the target check alone would accept. It cannot catch one where the row
+    is back at the value that was read; see the module docstring.
 
     ``allow_unchanged`` says whether a write that carries the same state is
     meaningful. For an artifact it is -- appending provenance changes nothing
@@ -150,15 +156,22 @@ def _require_writable[StateT: StrEnum](
     Raises:
         RecordIsFinal: if the stored state never changes again. Retrying is
             pointless, which is worth telling apart.
-        RecordChangedElsewhere: if the stored state moved somewhere the
-            incoming state does not follow from. Reading again may well
-            succeed, and the decision has to be made against the new state.
+        RecordChangedElsewhere: if the row is no longer in ``expected``, or if
+            the incoming state does not follow from where it now is. Reading
+            again may well succeed, and the decision has to be made against
+            the state the row is actually in.
     """
 
     permitted = transitions[stored]
     if not permitted:
         raise RecordIsFinal(
             f"{subject} {identity} is {stored.value!r} and does not change again; {final_note}"
+        )
+    if stored is not expected:
+        raise RecordChangedElsewhere(
+            f"{subject} {identity} was read as {expected.value!r} and is now {stored.value!r}; "
+            "it moved after it was read, so the decision this write carries was made about a "
+            "state it has left. Read it again and decide against the state it is in."
         )
     if incoming is stored:
         if allow_unchanged:
@@ -168,11 +181,12 @@ def _require_writable[StateT: StrEnum](
             "from that state and carries none"
         )
     if incoming not in permitted:
+        # expected matched, so this is not staleness: the entity carries a move
+        # the domain does not allow, which a transition method never produces.
         choices = ", ".join(sorted(state.value for state in permitted))
         raise RecordChangedElsewhere(
-            f"{subject} {identity} is stored as {stored.value!r}, which does not become "
-            f"{incoming.value!r}; it moved after it was read, and the allowed next states are "
-            f"now {choices}. Read it again and decide against the state it is in."
+            f"{subject} {identity} is {stored.value!r}, which does not become "
+            f"{incoming.value!r}; the allowed next states are {choices}"
         )
 
 
@@ -237,7 +251,7 @@ class SqlAlchemyArtifactRepository:
     def get(self, artifact_id: UUID) -> Artifact:
         return read_artifact(self._row(artifact_id))
 
-    def update(self, artifact: Artifact) -> None:
+    def update(self, artifact: Artifact, *, expected_state: ArtifactState) -> None:
         # The reference is not written back. Address, digest, size and media
         # type are what identify an artifact, and a transition returns the
         # same reference, so the only thing an update can carry is the state
@@ -251,6 +265,7 @@ class SqlAlchemyArtifactRepository:
             subject="artifact",
             identity=artifact.id,
             stored=_stored_state(row.state, states=ArtifactState, subject="artifact"),
+            expected=expected_state,
             incoming=artifact.state,
             transitions=ARTIFACT_TRANSITIONS,
             final_note="a good copy of those bytes is published as a new artifact",
@@ -305,20 +320,24 @@ class SqlAlchemyExecutionJobRepository:
     def get(self, job_id: UUID) -> ExecutionJob:
         return read_execution_job(self._row(job_id))
 
-    def update(self, job: ExecutionJob) -> None:
+    def update(self, job: ExecutionJob, *, expected_state: ExecutionJobState) -> None:
         # Kind and idempotency key are not rewritten: they say which command
         # this is, and a write that changed them would be describing a
         # different job under an existing id.
         row = self._row(job.id, for_update=True)
         # Two agents can report different outcomes for one job, and delivery is
         # at-least-once, so without this the final outcome would be whichever
-        # report committed last. Which of the two a collision is -- a duplicate
-        # or a real conflict -- is still the use case's call; it knows the
-        # idempotency key, and it makes that call against a state it re-read.
+        # report committed last. The expected state is what stops a stale lease
+        # claim too: losing a lease returns the job to `queued`, so a claim from
+        # an agent that read the earlier `queued` would otherwise land. Which of
+        # the two a collision is -- a duplicate or a real conflict -- is still
+        # the use case's call; it knows the idempotency key, and it makes that
+        # call against a state it re-read.
         _require_writable(
             subject="execution job",
             identity=job.id,
             stored=_stored_state(row.state, states=ExecutionJobState, subject="execution job"),
+            expected=expected_state,
             incoming=job.state,
             transitions=EXECUTION_JOB_TRANSITIONS,
             final_note="its outcome is reported once and a retry is a new job",
@@ -358,16 +377,22 @@ class SqlAlchemyRunAttemptRepository:
             raise RecordNotFound(f"no run attempt has the id {attempt_id}")
         return read_run_attempt(row)
 
-    def complete(self, attempt: RunAttempt) -> None:
+    def complete(
+        self, attempt: RunAttempt, *, expected_state: RunAttemptState = RunAttemptState.RUNNING
+    ) -> None:
         row = self._session.get(
             RunAttemptRow, attempt.id, with_for_update=True, populate_existing=True
         )
         if row is None:
             raise RecordNotFound(f"no run attempt has the id {attempt.id}")
+        # `running` is the only state an attempt is completed from, so the
+        # default is the only useful value. It is a parameter so every write in
+        # this module states its precondition the same way.
         _require_writable(
             subject="run attempt",
             identity=attempt.id,
             stored=_stored_state(row.state, states=RunAttemptState, subject="run attempt"),
+            expected=expected_state,
             incoming=attempt.state,
             transitions=RUN_ATTEMPT_TRANSITIONS,
             final_note="a completed attempt is the evidence for what ran, and a retry is the "
@@ -400,7 +425,7 @@ class SqlAlchemyDatasetSnapshotRepository:
     def get(self, snapshot_id: UUID) -> DatasetSnapshot:
         return read_dataset_snapshot(self._row(snapshot_id))
 
-    def update(self, snapshot: DatasetSnapshot) -> None:
+    def update(self, snapshot: DatasetSnapshot, *, expected_state: DatasetSnapshotState) -> None:
         row = self._row(snapshot.id, for_update=True)
         # This is also what keeps a validating snapshot from being put back to
         # draft by a stale write. Validation freezes the list that gets sealed,
@@ -411,6 +436,7 @@ class SqlAlchemyDatasetSnapshotRepository:
             stored=_stored_state(
                 row.state, states=DatasetSnapshotState, subject="dataset snapshot"
             ),
+            expected=expected_state,
             incoming=snapshot.state,
             transitions=DATASET_SNAPSHOT_TRANSITIONS,
             final_note="a correction is a new snapshot, because runs already name this one's "

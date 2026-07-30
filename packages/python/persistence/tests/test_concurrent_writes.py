@@ -18,8 +18,12 @@ from collections.abc import Iterator
 
 import factories
 import pytest
-from image_model_lab_application import RecordAlreadyExists, RecordIsFinal
-from image_model_lab_domain import Artifact, ArtifactState
+from image_model_lab_application import (
+    RecordAlreadyExists,
+    RecordChangedElsewhere,
+    RecordIsFinal,
+)
+from image_model_lab_domain import Artifact, ArtifactState, ExecutionJobState
 from image_model_lab_persistence import (
     SqlAlchemyArtifactRepository,
     SqlAlchemyExecutionJobRepository,
@@ -64,16 +68,21 @@ def test_a_locked_read_sees_the_database_not_the_identity_map(
     artifacts.add(artifact)
     first.commit()
     available = artifact.mark_available()
-    artifacts.update(available)
+    artifacts.update(available, expected_state=artifact.state)
     first.commit()
     # Load it, so the first session is holding it in its identity map.
     assert artifacts.get(artifact.id).state is ArtifactState.AVAILABLE
 
-    SqlAlchemyArtifactRepository(second).update(available.quarantine())
+    SqlAlchemyArtifactRepository(second).update(
+        available.quarantine(), expected_state=available.state
+    )
     second.commit()
 
     with pytest.raises(RecordIsFinal):
-        artifacts.update(available.record_provenance(factories.ingested("a later import")))
+        artifacts.update(
+            available.record_provenance(factories.ingested("a later import")),
+            expected_state=available.state,
+        )
 
 
 def test_a_quarantine_committed_elsewhere_leaves_the_provenance_alone(
@@ -87,11 +96,16 @@ def test_a_quarantine_committed_elsewhere_leaves_the_provenance_alone(
     first.commit()
     assert artifacts.get(artifact.id).state is ArtifactState.PENDING
 
-    SqlAlchemyArtifactRepository(second).update(artifact.quarantine())
+    SqlAlchemyArtifactRepository(second).update(
+        artifact.quarantine(), expected_state=artifact.state
+    )
     second.commit()
 
     with pytest.raises(RecordIsFinal):
-        artifacts.update(artifact.record_provenance(factories.ingested("a later import")))
+        artifacts.update(
+            artifact.record_provenance(factories.ingested("a later import")),
+            expected_state=artifact.state,
+        )
     first.rollback()
 
     assert len(stored_artifact(first, artifact).provenance) == 1
@@ -133,3 +147,104 @@ def test_work_already_done_survives_a_duplicate_insert(first: Session, second: S
     second.commit()
 
     assert SqlAlchemyArtifactRepository(first).get(earlier.id) == earlier
+
+
+def test_a_verification_made_before_the_bytes_went_missing_is_refused(
+    first: Session, second: Session
+) -> None:
+    """The cycle a target-only check cannot see.
+
+    ``missing -> available`` is a legal repair, so an artifact verified while it
+    was ``pending`` would pass a check that only asks whether the row may become
+    ``available`` -- even after the bytes were observed absent. The verification
+    predates that observation, so accepting it marks absent bytes readable. The
+    expected state is what makes the difference: the caller read ``pending`` and
+    the row says ``missing``.
+    """
+
+    artifacts = SqlAlchemyArtifactRepository(first)
+    artifact = factories.artifact()
+    artifacts.add(artifact)
+    first.commit()
+    pending = artifacts.get(artifact.id)
+    verified = pending.mark_available()
+
+    elsewhere = SqlAlchemyArtifactRepository(second)
+    available = elsewhere.get(artifact.id).mark_available()
+    elsewhere.update(available, expected_state=ArtifactState.PENDING)
+    elsewhere.update(available.mark_missing(), expected_state=ArtifactState.AVAILABLE)
+    second.commit()
+
+    with pytest.raises(RecordChangedElsewhere):
+        artifacts.update(verified, expected_state=pending.state)
+
+    first.rollback()
+    assert stored_artifact(first, artifact).state == ArtifactState.MISSING.value
+
+
+def test_a_second_agent_cannot_claim_a_job_that_was_already_leased(
+    first: Session, second: Session
+) -> None:
+    """The lease race the expected state does catch.
+
+    Two agents read the same ``queued`` job and both decide to lease it. The
+    first claim lands; the second arrives with ``expected_state=queued`` while
+    the row says ``leased``, so it is refused rather than overwriting a lease
+    another agent holds.
+
+    What this does *not* cover is a job that has gone all the way back to
+    ``queued`` -- see the next test. The difference is whether the value the
+    caller read is still the value in the row.
+    """
+
+    jobs = SqlAlchemyExecutionJobRepository(first)
+    job = factories.job()
+    jobs.add(job)
+    first.commit()
+    queued = jobs.get(job.id)
+    claim = queued.lease()
+
+    elsewhere = SqlAlchemyExecutionJobRepository(second)
+    elsewhere.update(elsewhere.get(job.id).lease(), expected_state=ExecutionJobState.QUEUED)
+    second.commit()
+
+    with pytest.raises(RecordChangedElsewhere):
+        jobs.update(claim, expected_state=queued.state)
+
+
+def test_a_completed_cycle_back_to_the_same_state_is_not_caught(
+    first: Session, second: Session
+) -> None:
+    """The limit of an expected state, pinned so it is not mistaken for safety.
+
+    ``queued -> leased -> running -> queued`` returns to the value the caller
+    read, so ``expected_state`` matches and the stale claim lands. An expected
+    state can only say "the value I read is still there", which is exactly what
+    a completed cycle makes true again.
+
+    Every state reachable from itself has this hole: ``available`` and
+    ``missing`` for artifacts, ``queued``, ``leased`` and ``running`` for jobs,
+    plus the ``draft -> draft`` item edit. All of them need a revision rather
+    than a state, which the ports do not carry -- see ADR-0005. This test
+    records the boundary; it will need deleting when that arrives.
+    """
+
+    jobs = SqlAlchemyExecutionJobRepository(first)
+    job = factories.job()
+    jobs.add(job)
+    first.commit()
+    queued = jobs.get(job.id)
+    claim = queued.lease()
+
+    elsewhere = SqlAlchemyExecutionJobRepository(second)
+    leased = elsewhere.get(job.id).lease()
+    elsewhere.update(leased, expected_state=ExecutionJobState.QUEUED)
+    running = leased.start()
+    elsewhere.update(running, expected_state=ExecutionJobState.LEASED)
+    elsewhere.update(running.release(), expected_state=ExecutionJobState.RUNNING)
+    second.commit()
+
+    jobs.update(claim, expected_state=queued.state)
+    first.commit()
+
+    assert jobs.get(job.id).state is ExecutionJobState.LEASED

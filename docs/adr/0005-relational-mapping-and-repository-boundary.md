@@ -26,7 +26,7 @@ M1-03에서 다음을 결정해야 했다.
 
 **상태는 CHECK가 붙은 text이며 PostgreSQL `ENUM` type을 쓰지 않는다.** 허용 값 목록과 column 폭은 domain 상수와 `StrEnum`에서 생성한다. 배포된 제약과 domain enum의 일치는 live database를 읽는 integration test가 검사하므로, 상태를 추가하면 migration을 쓸 때까지 test가 실패한다.
 
-**모든 write는 저장된 state가 그 write를 허용하는지 확인한다.** caller는 자신이 읽은 state를 기준으로 entity에게 다음 값을 물어보므로, 그 사이에 record가 움직였다면 그 답은 이미 지나간 state에 대한 것이다. `SELECT ... FOR UPDATE`만으로는 부족하다. 두 번째 writer는 lock을 기다린 뒤 새 row를 보고도 자신의 낡은 결정을 그 위에 쓰게 된다. 그래서 저장된 state와 들어온 state를 domain의 전이표(`ARTIFACT_TRANSITIONS` 등)에 대조하고, 지금 row가 그 state로 갈 수 없으면 거부한다. 검사 대상은 target이며 caller가 떠났다고 믿은 source는 아니다. 그 한계는 Consequences에 적어 두었다.
+**모든 write는 caller가 읽은 state(`expected_state`)와 저장된 state가 같은지, 그리고 그 state가 쓰려는 state로 갈 수 있는지 함께 확인한다.** caller는 자신이 읽은 state를 기준으로 entity에게 다음 값을 물어보므로, 그 사이에 record가 움직였다면 그 답은 이미 지나간 state에 대한 것이다. `SELECT ... FOR UPDATE`만으로는 부족하다. 두 번째 writer는 lock을 기다린 뒤 새 row를 보고도 자신의 낡은 결정을 그 위에 쓰게 된다. 그래서 저장된 state와 들어온 state를 domain의 전이표(`ARTIFACT_TRANSITIONS` 등)에 대조하고, 지금 row가 그 state로 갈 수 없으면 거부한다. 검사 대상은 target이며 caller가 떠났다고 믿은 source는 아니다. 그 한계는 Consequences에 적어 두었다.
 
 - 저장된 state가 종료 상태면 `RecordIsFinal`이다. 다시 읽어도 달라지지 않는다.
 - 종료 상태가 아니지만 전이가 허용되지 않으면 `RecordChangedElsewhere`이다. 다시 읽고 다시 판단하면 성공할 수 있다.
@@ -49,9 +49,11 @@ lock을 잡은 read는 identity map을 갱신한다(`populate_existing`). 같은
 - entity가 바뀌면 변환 코드도 함께 고쳐야 한다. 자동 mapping보다 코드가 많지만, column의 의미를 한 곳에서 읽을 수 있다.
 - update는 aggregate 전체를 쓴다. 큰 collection을 가진 aggregate가 생기면 부분 write가 필요해질 수 있다.
 - `artifacts.sha256`은 unique가 아니다. quarantine된 row가 digest를 유지하고 정상 사본은 새 artifact로 publish되기 때문이다. 주소인 `logical_uri`가 unique다.
-- **guard는 target만 검사하므로 두 종류의 낡은 write를 놓친다.** write는 "어떤 state로 간다"만 말하고 "어떤 state에서 떠난다"는 말하지 않는다. 전이가 새 entity를 돌려주고 이전 state는 그 위에 남지 않기 때문이다.
-  - *state가 되돌아오는 경우.* `pending`으로 읽고 bytes를 검증해 `available`을 쓰려는데 그 사이 row가 `available`을 거쳐 `missing`이 되면, `missing → available`은 정당한 repair 전이이므로 write가 통과한다. 검증은 `missing` 관측보다 앞선 것이므로, 없는 것으로 관측된 bytes가 읽을 수 있다고 표시된다. job도 같은 모양이다. `queued → leased → running → queued`로 돌아오면 앞선 `queued`를 읽은 agent의 lease claim이 release 이후에도 받아들여져 두 agent가 각각 lease를 쥐었다고 믿을 수 있다. cycle이 있는 lifecycle은 `Artifact`와 `ExecutionJob`이며 snapshot과 attempt에는 없다.
-  - *state를 유지하는 변경은 감지되지 않는다.* 두 caller가 같은 draft snapshot을 읽고 각각 item을 편집하면, 두 번째 write도 `draft → draft`이므로 guard를 통과하고 첫 번째가 commit한 편집을 조용히 덮어쓴다. state 비교로는 잡을 수 없으며, write에 expected revision이 함께 전달돼야 한다. 현재 port는 그것을 싣지 않는다. 단일 사용자 시스템에서 draft 편집이 동시에 일어날 여지는 작지만, job lease claim에서는 이 성질이 핵심이 되므로 Phase 4에서 optimistic concurrency를 함께 결정한다.
+- **expected state는 "읽은 값이 아직 그 값인가"만 말할 수 있으므로, row가 그 값으로 돌아와 있는 낡은 write는 잡히지 않는다.** 두 경우가 여기에 해당하고 원인은 하나다.
+  - *state가 아예 움직이지 않은 경우.* 두 caller가 같은 draft snapshot을 읽고 각각 item을 편집하면 둘 다 `draft`를 읽었으므로 expected state가 일치하고, 두 번째 write가 첫 번째가 commit한 편집을 덮어쓴다.
+  - *cycle이 한 바퀴 돌아 같은 값으로 되돌아온 경우.* `queued → leased → running → queued`가 그렇다. 앞선 `queued`를 읽은 agent의 lease claim이 release 이후에도 통과한다. 자기 자신에게 도달할 수 있는 state가 이 성질을 가지며, artifact의 `available`·`missing`과 job의 `queued`·`leased`·`running`이 그렇다.
+
+  두 경우 모두 state가 아니라 revision이 필요하다. 현재 port는 그것을 싣지 않으며, job lease claim에서 이 성질이 핵심이 되므로 Phase 4에서 optimistic concurrency와 함께 결정한다. 값이 달라진 낡은 write는 expected state가 잡는다. `pending`으로 읽고 검증한 artifact를 `missing`이 된 row에 쓰는 경우, 그리고 한 `queued` job을 두 agent가 동시에 claim해 두 번째가 `leased`를 만나는 경우가 그 예다.
 - lease 기반 job claim에 필요한 `SKIP LOCKED` 조회, `JobLease`, `ExecutionAgent`, `RunEvent` table은 아직 없다. Phase 4에서 protocol과 함께 추가한다.
 - integration test는 PostgreSQL server를 요구한다. `just test`는 server 없이도 성공하며 해당 test는 이유와 함께 skip되고, 전용 CI job이 실제로 실행한다.
 
