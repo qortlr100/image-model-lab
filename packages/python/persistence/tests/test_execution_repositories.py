@@ -6,7 +6,12 @@ from uuid import uuid4
 
 import factories
 import pytest
-from image_model_lab_application import RecordAlreadyExists, RecordIsFinal, RecordNotFound
+from image_model_lab_application import (
+    RecordAlreadyExists,
+    RecordChangedElsewhere,
+    RecordIsFinal,
+    RecordNotFound,
+)
 from image_model_lab_domain import ExecutionJobState, RunAttemptState
 from image_model_lab_persistence import (
     SqlAlchemyExecutionJobRepository,
@@ -74,6 +79,45 @@ def test_a_lease_and_its_loss_are_both_stored(session: Session) -> None:
     session.expunge_all()
 
     assert repository.get(stored.id).state is ExecutionJobState.QUEUED
+
+
+def test_a_job_outcome_does_not_depend_on_which_report_was_written_last(
+    session: Session,
+) -> None:
+    """The stale value a second completion report leaves a handler holding.
+
+    Two handlers derive an outcome from the same running job. The first writes
+    ``failed`` and commits; the second still holds the running value it read
+    and would write ``succeeded`` over it. Waiting on the row lock is not
+    enough on its own -- without checking the stored state, the job's recorded
+    outcome would be whichever report happened to be written last.
+    """
+
+    repository = jobs(session)
+    stored = factories.job()
+    repository.add(stored)
+    leased = stored.lease()
+    repository.update(leased)
+    running = leased.start()
+    repository.update(running)
+    repository.update(running.mark_failed())
+
+    with pytest.raises(RecordIsFinal):
+        repository.update(running.mark_succeeded())
+
+
+def test_a_stale_job_state_is_refused_rather_than_written(session: Session) -> None:
+    """``running`` does not become ``leased``, so the write is a lost update."""
+
+    repository = jobs(session)
+    stored = factories.job()
+    repository.add(stored)
+    leased = stored.lease()
+    repository.update(leased)
+    repository.update(leased.start())
+
+    with pytest.raises(RecordChangedElsewhere):
+        repository.update(leased)
 
 
 def test_an_attempt_survives_a_round_trip_unchanged(session: Session) -> None:
@@ -171,6 +215,21 @@ def test_a_completed_attempt_is_not_rewritten(session: Session) -> None:
                 manifest=factories.reference(key=f"training/{owner.id}/manifest.json"),
             )
         )
+
+
+def test_completing_an_attempt_with_a_value_that_has_not_ended_is_refused(
+    session: Session,
+) -> None:
+    """``complete`` records how something ended, so it must carry an ending."""
+
+    owner = factories.job()
+    jobs(session).add(owner)
+    repository = attempts(session)
+    stored = factories.attempt(owner.id)
+    repository.add(stored)
+
+    with pytest.raises(RecordChangedElsewhere):
+        repository.complete(stored)
 
 
 def test_completing_an_attempt_that_was_never_stored_is_an_error(session: Session) -> None:

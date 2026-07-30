@@ -6,7 +6,11 @@ from uuid import uuid4
 
 import factories
 import pytest
-from image_model_lab_application import RecordIsFinal, RecordNotFound
+from image_model_lab_application import (
+    RecordChangedElsewhere,
+    RecordIsFinal,
+    RecordNotFound,
+)
 from image_model_lab_domain import DatasetSnapshotState
 from image_model_lab_persistence import SqlAlchemyDatasetSnapshotRepository
 from sqlalchemy.orm import Session
@@ -134,6 +138,25 @@ def test_validation_freezes_the_items_that_get_sealed(session: Session) -> None:
     session.expunge_all()
 
     assert snapshots.get(stored.id).items == items
+
+
+def test_a_validating_snapshot_is_not_returned_to_draft(session: Session) -> None:
+    """The stale draft a concurrent ``begin_validation`` leaves behind.
+
+    One transaction starts validation and commits; another still holds the
+    draft it read and writes that back. Waiting on the row lock is not enough
+    on its own -- without checking the stored state, the snapshot would be
+    reopened and a later draft update could change the item list validation had
+    already frozen, sealing something that was never checked.
+    """
+
+    snapshots = repository(session)
+    stored = factories.snapshot(items=(factories.item(),))
+    snapshots.add(stored)
+    snapshots.update(stored.begin_validation())
+
+    with pytest.raises(RecordChangedElsewhere):
+        snapshots.update(stored.add_item(factories.item()))
 
 
 def test_updating_a_snapshot_that_was_never_stored_is_an_error(session: Session) -> None:

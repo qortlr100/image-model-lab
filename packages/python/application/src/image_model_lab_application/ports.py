@@ -13,6 +13,12 @@ Writes do not commit. A repository writes through the session or connection it
 was given and the composition root decides the transaction boundary, because
 one use case's work is usually several aggregates and committing halfway
 through would publish a state no rule was checked against.
+
+Every write can raise :class:`~image_model_lab_application.errors.RecordChangedElsewhere`.
+The entity was asked for the next value given the state the caller had read,
+so if the record moved in between, that answer is about a state it has already
+left. The write is refused instead of applied, and the caller reads again and
+decides against the state the record is in.
 """
 
 from __future__ import annotations
@@ -53,6 +59,12 @@ class ArtifactRepository(Protocol):
 
         Raises:
             RecordNotFound: if no artifact has that id.
+            RecordIsFinal: if the stored artifact is quarantined. Its bytes
+                contradict the digest that identifies them, so it takes no new
+                origin and never returns to a usable state; a good copy is
+                published as a new artifact.
+            RecordChangedElsewhere: if the stored state does not become the
+                state being written.
             RecordHistoryRewritten: if the provenance shrank, or a record
                 already stored is not the one being written back.
         """
@@ -83,6 +95,11 @@ class ExecutionJobRepository(Protocol):
 
         Raises:
             RecordNotFound: if no job has that id.
+            RecordIsFinal: if the stored job already reached an outcome.
+            RecordChangedElsewhere: if the stored state does not become the
+                state being written. Two agents can report different outcomes
+                for one job, so without this the outcome would be whichever
+                report was written last.
         """
         ...
 
@@ -127,6 +144,7 @@ class RunAttemptRepository(Protocol):
         Raises:
             RecordNotFound: if no attempt has that id.
             RecordIsFinal: if the stored attempt has already ended.
+            RecordChangedElsewhere: if the attempt being written has not ended.
         """
         ...
 
@@ -165,6 +183,10 @@ class DatasetSnapshotRepository(Protocol):
         Raises:
             RecordNotFound: if no snapshot has that id.
             RecordIsFinal: if the stored snapshot is sealed or rejected.
+            RecordChangedElsewhere: if the stored state does not become the
+                state being written -- notably a stale draft written over a
+                snapshot that has begun validating, which would reopen the item
+                list validation froze.
         """
         ...
 

@@ -10,30 +10,48 @@ Writes flush, though. A flush is what turns a duplicate key or a broken
 one that surfaces at commit time with no context left about which write caused
 it.
 
-Three writes are guarded beyond what the constraints say, and all three guard
-the same thing: a record that is finished must not be quietly replaced.
-Completed run attempts and sealed snapshots are the evidence a finished run is
-explained by, and an artifact's provenance is an append-only history. Each
-guard reads the stored row ``FOR UPDATE`` first, so two agents reporting at
-once queue behind each other rather than both seeing a writable row.
+Every write is guarded beyond what the constraints say, and the guard is
+always the same question: does the *stored* state still allow the write the
+caller decided on?
+
+It has to be asked, because a caller reads an aggregate, asks the entity for
+the next value, and writes that value back -- and the entity was asked about
+the state the caller read. If something moved the record in between, that
+answer is about a state the record has already left. Taking the lock is not
+enough on its own: the second writer waits, then sees the new row, and would
+happily write its stale decision over it. So the stored state is compared with
+the incoming one against the domain's own transition table, and a write that
+would put the record back into a state it left is refused.
+
+The transition tables are the domain's, not a copy. A state that becomes
+final, or a move that stops being allowed, tightens these guards without
+anyone having to remember they are here.
 """
 
 from __future__ import annotations
 
+from collections.abc import Mapping
+from enum import StrEnum
 from uuid import UUID
 
 from image_model_lab_application import (
     RecordAlreadyExists,
+    RecordChangedElsewhere,
     RecordHistoryRewritten,
     RecordIsFinal,
     RecordNotFound,
 )
 from image_model_lab_domain import (
+    ARTIFACT_TRANSITIONS,
     DATASET_SNAPSHOT_TRANSITIONS,
+    EXECUTION_JOB_TRANSITIONS,
+    RUN_ATTEMPT_TRANSITIONS,
     Artifact,
+    ArtifactState,
     DatasetSnapshot,
     DatasetSnapshotState,
     ExecutionJob,
+    ExecutionJobState,
     RunAttempt,
     RunAttemptState,
 )
@@ -41,6 +59,7 @@ from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
+from image_model_lab_persistence.errors import StoredRowInvalid
 from image_model_lab_persistence.mapping import (
     artifact_row,
     dataset_snapshot_row,
@@ -68,14 +87,68 @@ UNIQUE_VIOLATION = "23505"
 FOREIGN_KEY_VIOLATION = "23503"
 """PostgreSQL SQLSTATE for a reference to a row that is not there."""
 
-FINAL_SNAPSHOT_STATES = frozenset(
-    state.value for state, targets in DATASET_SNAPSHOT_TRANSITIONS.items() if not targets
-)
-"""Snapshot states that never change again, whatever an update carries.
 
-Read off the lifecycle table rather than listed here, so a state that becomes
-final in the domain becomes unwritable here without anyone remembering to.
-"""
+def _stored_state[StateT: StrEnum](value: str, *, states: type[StateT], subject: str) -> StateT:
+    """Read a stored state column as the domain state it is meant to be.
+
+    A ``CHECK`` keeps unknown values out, so reaching the failure means the
+    constraint is gone or the row predates it. Reported as the broken row it
+    is, rather than crashing on an enum lookup halfway through a write.
+    """
+
+    try:
+        return states(value)
+    except ValueError:
+        raise StoredRowInvalid(
+            f"stored {subject} state {value!r} is not a state the domain knows"
+        ) from None
+
+
+def _require_writable[StateT: StrEnum](
+    *,
+    subject: str,
+    identity: UUID,
+    stored: StateT,
+    incoming: StateT,
+    transitions: Mapping[StateT, frozenset[StateT]],
+    final_note: str,
+    allow_unchanged: bool,
+) -> None:
+    """Check the stored state still permits the state the caller decided on.
+
+    ``allow_unchanged`` says whether a write that carries the same state is
+    meaningful. For an artifact it is -- appending provenance changes nothing
+    else -- and for a draft snapshot it is, because that is how its items are
+    replaced. For a run attempt it is not: ``complete`` records how something
+    ended, so a write that leaves it running is a caller mistake.
+
+    Raises:
+        RecordIsFinal: if the stored state never changes again. Retrying is
+            pointless, which is worth telling apart.
+        RecordChangedElsewhere: if the stored state moved somewhere the
+            incoming state does not follow from. Reading again may well
+            succeed, and the decision has to be made against the new state.
+    """
+
+    permitted = transitions[stored]
+    if not permitted:
+        raise RecordIsFinal(
+            f"{subject} {identity} is {stored.value!r} and does not change again; {final_note}"
+        )
+    if incoming is stored:
+        if allow_unchanged:
+            return
+        raise RecordChangedElsewhere(
+            f"{subject} {identity} is still {stored.value!r}; this write records a move away "
+            "from that state and carries none"
+        )
+    if incoming not in permitted:
+        choices = ", ".join(sorted(state.value for state in permitted))
+        raise RecordChangedElsewhere(
+            f"{subject} {identity} is stored as {stored.value!r}, which does not become "
+            f"{incoming.value!r}; it moved after it was read, and the allowed next states are "
+            f"now {choices}. Read it again and decide against the state it is in."
+        )
 
 
 def _sqlstate(error: IntegrityError) -> str | None:
@@ -126,6 +199,19 @@ class SqlAlchemyArtifactRepository:
         # same reference, so the only thing an update can carry is the state
         # and whatever provenance the artifact has gained.
         row = self._row(artifact.id, for_update=True)
+        # Checked before the provenance is touched, and this is the check that
+        # keeps a quarantined artifact from taking a new origin: its stored
+        # bytes contradict their digest, so recording an import against them
+        # would claim that import produced them.
+        _require_writable(
+            subject="artifact",
+            identity=artifact.id,
+            stored=_stored_state(row.state, states=ArtifactState, subject="artifact"),
+            incoming=artifact.state,
+            transitions=ARTIFACT_TRANSITIONS,
+            final_note="a good copy of those bytes is published as a new artifact",
+            allow_unchanged=True,
+        )
         self._append_provenance(row, artifact)
         row.state = artifact.state.value
         self._session.flush()
@@ -182,6 +268,20 @@ class SqlAlchemyExecutionJobRepository:
         # this is, and a write that changed them would be describing a
         # different job under an existing id.
         row = self._row(job.id, for_update=True)
+        # Two agents can report different outcomes for one job, and delivery is
+        # at-least-once, so without this the final outcome would be whichever
+        # report committed last. Which of the two a collision is -- a duplicate
+        # or a real conflict -- is still the use case's call; it knows the
+        # idempotency key, and it makes that call against a state it re-read.
+        _require_writable(
+            subject="execution job",
+            identity=job.id,
+            stored=_stored_state(row.state, states=ExecutionJobState, subject="execution job"),
+            incoming=job.state,
+            transitions=EXECUTION_JOB_TRANSITIONS,
+            final_note="its outcome is reported once and a retry is a new job",
+            allow_unchanged=True,
+        )
         row.state = job.state.value
         row.priority = job.priority
         self._session.flush()
@@ -222,11 +322,16 @@ class SqlAlchemyRunAttemptRepository:
         row = self._session.get(RunAttemptRow, attempt.id, with_for_update=True)
         if row is None:
             raise RecordNotFound(f"no run attempt has the id {attempt.id}")
-        if row.state != RunAttemptState.RUNNING.value:
-            raise RecordIsFinal(
-                f"run attempt {attempt.id} already ended as {row.state!r}; a completed "
-                "attempt is the evidence for what ran, and a retry is the next attempt"
-            )
+        _require_writable(
+            subject="run attempt",
+            identity=attempt.id,
+            stored=_stored_state(row.state, states=RunAttemptState, subject="run attempt"),
+            incoming=attempt.state,
+            transitions=RUN_ATTEMPT_TRANSITIONS,
+            final_note="a completed attempt is the evidence for what ran, and a retry is the "
+            "next attempt",
+            allow_unchanged=False,
+        )
         row.state = attempt.state.value
         row.ended_at = attempt.ended_at
         write_manifest(row, attempt.manifest)
@@ -259,11 +364,21 @@ class SqlAlchemyDatasetSnapshotRepository:
 
     def update(self, snapshot: DatasetSnapshot) -> None:
         row = self._row(snapshot.id, for_update=True)
-        if row.state in FINAL_SNAPSHOT_STATES:
-            raise RecordIsFinal(
-                f"dataset snapshot {snapshot.id} is {row.state!r} and does not change again; "
-                "a correction is a new snapshot, because runs already name this one's digest"
-            )
+        # This is also what keeps a validating snapshot from being put back to
+        # draft by a stale write. Validation freezes the list that gets sealed,
+        # so reopening it would let the items change after they were checked.
+        _require_writable(
+            subject="dataset snapshot",
+            identity=snapshot.id,
+            stored=_stored_state(
+                row.state, states=DatasetSnapshotState, subject="dataset snapshot"
+            ),
+            incoming=snapshot.state,
+            transitions=DATASET_SNAPSHOT_TRANSITIONS,
+            final_note="a correction is a new snapshot, because runs already name this one's "
+            "digest",
+            allow_unchanged=True,
+        )
         if row.state == DatasetSnapshotState.DRAFT.value:
             # Items move only in draft, so this is the one write that may
             # replace them. From validating onwards the list being checked is
@@ -289,7 +404,6 @@ class SqlAlchemyDatasetSnapshotRepository:
 
 
 __all__ = [
-    "FINAL_SNAPSHOT_STATES",
     "FOREIGN_KEY_VIOLATION",
     "UNIQUE_VIOLATION",
     "SqlAlchemyArtifactRepository",

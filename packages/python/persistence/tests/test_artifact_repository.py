@@ -8,7 +8,9 @@ import factories
 import pytest
 from image_model_lab_application import (
     RecordAlreadyExists,
+    RecordChangedElsewhere,
     RecordHistoryRewritten,
+    RecordIsFinal,
     RecordNotFound,
 )
 from image_model_lab_domain import ArtifactState
@@ -153,6 +155,52 @@ def test_an_update_does_not_re_address_the_stored_artifact(session: Session) -> 
     session.expunge_all()
 
     assert artifacts.get(stored.id).reference == stored.reference
+
+
+def test_a_quarantined_artifact_takes_no_new_provenance(session: Session) -> None:
+    """The stale value a concurrent quarantine leaves a second writer holding.
+
+    Two transactions read the same available artifact; one quarantines it and
+    commits, the other still holds the value it read and appends an import to
+    it. Waiting on the row lock is not enough on its own -- the second writer
+    then sees the quarantined row, and without this check would attach the
+    import to bytes whose digest was declared untrustworthy, claiming that
+    import produced them.
+    """
+
+    artifacts = repository(session)
+    stored = factories.artifact()
+    artifacts.add(stored)
+    artifacts.update(stored.quarantine())
+
+    with pytest.raises(RecordIsFinal):
+        artifacts.update(stored.record_provenance(factories.ingested("a later import")))
+
+
+def test_a_quarantined_artifact_is_not_returned_to_an_earlier_state(session: Session) -> None:
+    artifacts = repository(session)
+    stored = factories.artifact()
+    artifacts.add(stored)
+    available = stored.mark_available()
+    artifacts.update(available)
+    artifacts.update(available.quarantine())
+
+    with pytest.raises(RecordIsFinal):
+        artifacts.update(available)
+
+
+def test_a_stale_state_is_refused_rather_than_written(session: Session) -> None:
+    """``missing`` does not become ``pending``, so the write is a lost update."""
+
+    artifacts = repository(session)
+    stored = factories.artifact()
+    artifacts.add(stored)
+    available = stored.mark_available()
+    artifacts.update(available)
+    artifacts.update(available.mark_missing())
+
+    with pytest.raises(RecordChangedElsewhere):
+        artifacts.update(stored)
 
 
 def test_updating_an_artifact_that_was_never_stored_is_an_error(session: Session) -> None:

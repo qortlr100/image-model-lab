@@ -44,6 +44,27 @@ class RecordIsFinal(RepositoryError):
     A completed run attempt and a sealed dataset snapshot are the evidence a
     finished run is explained by, so neither is rewritten. The correction is a
     new attempt or a new snapshot, which is a different record entirely.
+
+    Re-reading will not help. Unlike :class:`RecordChangedElsewhere`, this
+    record is done, and a caller that retries will be refused again.
+    """
+
+
+class RecordChangedElsewhere(RepositoryError):
+    """The stored record moved on after the caller read it.
+
+    A use case reads an aggregate, asks the entity for the next value and
+    writes that value back. If something else moved the record in between, the
+    entity was asked about a state that is no longer current -- so the write is
+    refused rather than applied, because applying it would put the record back
+    into a state it had already left.
+
+    The fix is to read again and decide again. What the right decision is
+    depends on the new state and on the request: a completion report that
+    arrives twice is a duplicate to acknowledge, while two agents reporting
+    different outcomes for one job is a conflict. A repository cannot tell
+    those apart, so it reports the collision and leaves the judgment where the
+    idempotency key is known.
     """
 
 
@@ -59,6 +80,7 @@ class RecordHistoryRewritten(RepositoryError):
 __all__ = [
     "ApplicationError",
     "RecordAlreadyExists",
+    "RecordChangedElsewhere",
     "RecordHistoryRewritten",
     "RecordIsFinal",
     "RecordNotFound",

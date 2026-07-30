@@ -9,6 +9,7 @@ from typing import Final
 from image_model_lab_application.errors import (
     ApplicationError,
     RecordAlreadyExists,
+    RecordChangedElsewhere,
     RecordHistoryRewritten,
     RecordIsFinal,
     RecordNotFound,
@@ -30,6 +31,7 @@ __all__ = [
     "DatasetSnapshotRepository",
     "ExecutionJobRepository",
     "RecordAlreadyExists",
+    "RecordChangedElsewhere",
     "RecordHistoryRewritten",
     "RecordIsFinal",
     "RecordNotFound",

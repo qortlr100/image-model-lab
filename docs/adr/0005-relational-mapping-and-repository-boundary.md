@@ -26,7 +26,16 @@ M1-03에서 다음을 결정해야 했다.
 
 **상태는 CHECK가 붙은 text이며 PostgreSQL `ENUM` type을 쓰지 않는다.** 허용 값 목록과 column 폭은 domain 상수와 `StrEnum`에서 생성한다. 배포된 제약과 domain enum의 일치는 live database를 읽는 integration test가 검사하므로, 상태를 추가하면 migration을 쓸 때까지 test가 실패한다.
 
-**끝난 기록은 repository가 다시 쓰지 않는다.** 완료된 `RunAttempt`, sealed/rejected `DatasetSnapshot`, 이미 기록된 artifact provenance는 update 경로에서 거부한다. guard는 `SELECT ... FOR UPDATE`로 읽은 저장된 row를 기준으로 판단한다.
+**모든 write는 저장된 state가 그 write를 허용하는지 확인한다.** caller는 자신이 읽은 state를 기준으로 entity에게 다음 값을 물어보므로, 그 사이에 record가 움직였다면 그 답은 이미 지나간 state에 대한 것이다. `SELECT ... FOR UPDATE`만으로는 부족하다. 두 번째 writer는 lock을 기다린 뒤 새 row를 보고도 자신의 낡은 결정을 그 위에 쓰게 된다. 그래서 저장된 state와 들어온 state를 domain의 전이표(`ARTIFACT_TRANSITIONS` 등)에 대조하고, record가 이미 떠난 state로 되돌리는 write는 거부한다.
+
+- 저장된 state가 종료 상태면 `RecordIsFinal`이다. 다시 읽어도 달라지지 않는다.
+- 종료 상태가 아니지만 전이가 허용되지 않으면 `RecordChangedElsewhere`이다. 다시 읽고 다시 판단하면 성공할 수 있다.
+
+이것이 quarantine된 artifact가 새 provenance를 받지 않는 이유이고, 두 agent가 한 job에 서로 다른 outcome을 보고했을 때 결과가 write 순서로 정해지지 않는 이유이고, validating snapshot이 낡은 draft write로 다시 열리지 않는 이유다. 중복 보고인지 실제 충돌인지는 여전히 idempotency key를 아는 use case가 판단하며, 다만 그 판단을 다시 읽은 state 위에서 하게 된다.
+
+또한 이미 기록된 artifact provenance는 append만 가능하고, 저장된 prefix가 바뀌면 `RecordHistoryRewritten`으로 거부한다.
+
+전이표는 복사하지 않고 domain의 것을 그대로 참조한다. 어떤 state가 종료 상태가 되거나 허용되던 전이가 사라지면 이 guard가 자동으로 좁아진다.
 
 **모든 schema 변경은 Alembic revision을 갖고 downgrade를 갖는다.** migration은 package 안에 있어 service image가 자기 schema를 올릴 수 있다. baseline은 `0001_baseline_schema.py`이며 upgrade/downgrade/재upgrade와 mapping 대조를 disposable database에서 검사한다.
 
