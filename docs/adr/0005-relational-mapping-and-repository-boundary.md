@@ -31,6 +31,10 @@ M1-03에서 다음을 결정해야 했다.
 - 저장된 state가 종료 상태면 `RecordIsFinal`이다. 다시 읽어도 달라지지 않는다.
 - 종료 상태가 아니지만 전이가 허용되지 않으면 `RecordChangedElsewhere`이다. 다시 읽고 다시 판단하면 성공할 수 있다.
 
+lock을 잡은 read는 identity map을 갱신한다(`populate_existing`). 같은 session이 앞서 그 row를 읽었다면 `SELECT ... FOR UPDATE`만으로는 이미 load된 속성이 다시 채워지지 않으므로, guard가 database의 state가 아니라 caller가 이미 알고 있던 state를 검사하게 된다.
+
+**insert는 savepoint 안에서 flush한다.** PostgreSQL은 statement 하나가 실패하면 transaction 전체를 abort하고 rollback 전까지 모든 statement를 거부한다. 따라서 savepoint 없이 `RecordAlreadyExists`를 올리면 "복구 가능한 조건"을 알려주면서 복구할 수단은 남기지 않는 셈이다. at-least-once 전달에서 중복 요청의 정상 처리는 "이미 queue된 job을 찾아 확인"이므로, 그 조회가 가능해야 한다. savepoint rollback은 실패한 insert만 되돌리고 composition root가 소유한 transaction과 use case가 앞서 써 둔 내용은 유지한다.
+
 이것이 quarantine된 artifact가 새 provenance를 받지 않는 이유이고, 두 agent가 한 job에 서로 다른 outcome을 보고했을 때 결과가 write 순서로 정해지지 않는 이유이고, validating snapshot이 낡은 draft write로 다시 열리지 않는 이유다. 중복 보고인지 실제 충돌인지는 여전히 idempotency key를 아는 use case가 판단하며, 다만 그 판단을 다시 읽은 state 위에서 하게 된다.
 
 또한 이미 기록된 artifact provenance는 append만 가능하고, 저장된 prefix가 바뀌면 `RecordHistoryRewritten`으로 거부한다.
@@ -45,6 +49,7 @@ M1-03에서 다음을 결정해야 했다.
 - entity가 바뀌면 변환 코드도 함께 고쳐야 한다. 자동 mapping보다 코드가 많지만, column의 의미를 한 곳에서 읽을 수 있다.
 - update는 aggregate 전체를 쓴다. 큰 collection을 가진 aggregate가 생기면 부분 write가 필요해질 수 있다.
 - `artifacts.sha256`은 unique가 아니다. quarantine된 row가 digest를 유지하고 정상 사본은 새 artifact로 publish되기 때문이다. 주소인 `logical_uri`가 unique다.
+- **state를 유지하는 변경은 감지되지 않는다.** 두 caller가 같은 draft snapshot을 읽고 각각 item을 편집하면, 두 번째 write도 `draft → draft`이므로 guard를 통과하고 첫 번째가 commit한 편집을 조용히 덮어쓴다. state 비교로는 잡을 수 없으며, write에 expected revision이 함께 전달돼야 한다. 현재 port는 그것을 싣지 않는다. 단일 사용자 시스템에서 draft 편집이 동시에 일어날 여지는 작지만, job lease claim에서는 이 성질이 핵심이 되므로 Phase 4에서 optimistic concurrency를 함께 결정한다.
 - lease 기반 job claim에 필요한 `SKIP LOCKED` 조회, `JobLease`, `ExecutionAgent`, `RunEvent` table은 아직 없다. Phase 4에서 protocol과 함께 추가한다.
 - integration test는 PostgreSQL server를 요구한다. `just test`는 server 없이도 성공하며 해당 test는 이유와 함께 skip되고, 전용 CI job이 실제로 실행한다.
 
@@ -59,6 +64,7 @@ M1-03에서 다음을 결정해야 했다.
 
 ## Revisit triggers
 
+- aggregate에 version column을 도입해 state를 유지하는 동시 편집까지 거부한다. port의 write signature가 expected revision을 싣게 되므로 contract 변경이다.
 - job lease 조회가 `SELECT ... FOR UPDATE SKIP LOCKED`와 partial index를 요구한다.
 - 한 aggregate의 child collection이 커져 전체 rewrite가 비용이 된다.
 - 여러 use case가 같은 transaction 조립 코드를 반복해 Unit of Work가 실제 중복 제거가 된다.

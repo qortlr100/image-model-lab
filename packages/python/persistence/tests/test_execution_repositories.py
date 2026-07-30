@@ -47,10 +47,15 @@ def test_one_idempotency_key_queues_one_job(session: Session) -> None:
     """Delivery is at-least-once, so the same request can arrive twice."""
 
     repository = jobs(session)
-    repository.add(factories.job(idempotency_key="train:snapshot-9:recipe-3"))
+    stored = factories.job(idempotency_key="train:snapshot-9:recipe-3")
+    repository.add(stored)
 
     with pytest.raises(RecordAlreadyExists):
         repository.add(factories.job(idempotency_key="train:snapshot-9:recipe-3"))
+
+    # And the caller can still act on being told so, which is the whole point
+    # of the error: the duplicate is acknowledged by finding what is queued.
+    assert repository.find_by_idempotency_key("train:snapshot-9:recipe-3") == stored
 
 
 def test_a_repeated_request_finds_the_job_it_already_queued(session: Session) -> None:

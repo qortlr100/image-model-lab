@@ -139,8 +139,9 @@ docs/
 - 생명주기를 가진 네 entity(`Artifact`, `ExecutionJob`, `RunAttempt`, `DatasetSnapshot`)와 순서를 가진 두 child table(artifact provenance, snapshot item)이 mapping되어 있습니다.
 - domain entity는 그대로 mapping되지 않고 별도 row class와 명시적 변환을 거칩니다. 읽기는 entity 생성자를 다시 통과하므로 불변식을 어긴 row는 읽는 시점에 거부됩니다.
 - repository는 aggregate 단위로 write하고 commit하지 않습니다. transaction 경계는 composition root가 소유합니다.
-- 모든 write는 저장된 state가 그 write를 허용하는지 domain 전이표에 대조합니다. `FOR UPDATE`만으로는 낡은 결정이 새 row 위에 쓰이는 것을 막지 못하므로, record가 이미 떠난 state로 되돌리는 write는 `RecordIsFinal`(종료 상태) 또는 `RecordChangedElsewhere`(다시 읽으면 성공 가능)로 거부됩니다.
+- 모든 write는 저장된 state가 그 write를 허용하는지 domain 전이표에 대조합니다. `FOR UPDATE`만으로는 낡은 결정이 새 row 위에 쓰이는 것을 막지 못하므로, record가 이미 떠난 state로 되돌리는 write는 `RecordIsFinal`(종료 상태) 또는 `RecordChangedElsewhere`(다시 읽으면 성공 가능)로 거부됩니다. lock을 잡은 read는 identity map을 갱신해 caller가 이미 알던 state가 아니라 database의 state를 검사합니다.
 - 완료된 `RunAttempt`, sealed/rejected `DatasetSnapshot`, quarantine된 `Artifact`, 이미 기록된 provenance는 그래서 덮어써지지 않습니다.
+- insert는 savepoint 안에서 실행되므로 `RecordAlreadyExists`를 받은 caller가 같은 transaction에서 기존 record를 조회해 중복을 확인할 수 있습니다. state를 유지하는 동시 편집(예: 같은 draft snapshot의 item)은 아직 감지되지 않습니다 — [ADR-0005](docs/adr/0005-relational-mapping-and-repository-boundary.md)의 Consequences를 참고하세요.
 - 상태 column의 허용 값과 column 폭은 domain 상수에서 생성되고, 배포된 CHECK 제약이 domain enum과 일치하는지는 live database를 읽는 test가 검사합니다.
 
 근거와 대안은 [ADR-0005](docs/adr/0005-relational-mapping-and-repository-boundary.md)에 있습니다.

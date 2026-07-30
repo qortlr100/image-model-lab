@@ -19,6 +19,15 @@ The entity was asked for the next value given the state the caller had read,
 so if the record moved in between, that answer is about a state it has already
 left. The write is refused instead of applied, and the caller reads again and
 decides against the state the record is in.
+
+A refused write leaves the caller's transaction intact. That is what makes
+these errors worth catching: on ``RecordAlreadyExists`` a use case can look up
+the record that already holds the identity and acknowledge the duplicate, and
+whatever it had written earlier in the same transaction is still there.
+
+What no write currently detects is a change that leaves the state where it
+was -- two callers editing one draft snapshot's items, for instance. That needs
+an expected revision travelling with the write, which these ports do not carry.
 """
 
 from __future__ import annotations
@@ -39,6 +48,7 @@ class ArtifactRepository(Protocol):
             RecordAlreadyExists: if the id or the logical URI is taken. A
                 logical URI is an address, so two artifacts at one address
                 would leave a reader no way to tell which bytes it addressed.
+                The caller's transaction survives the refusal.
         """
         ...
 
@@ -78,7 +88,10 @@ class ExecutionJobRepository(Protocol):
         """Store a newly queued job.
 
         Raises:
-            RecordAlreadyExists: if the id or the idempotency key is taken.
+            RecordAlreadyExists: if the id or the idempotency key is taken. The
+                caller's transaction survives the refusal, so the usual answer
+                -- find the job already queued and acknowledge the duplicate --
+                works without starting over.
         """
         ...
 

@@ -8,7 +8,8 @@ the middle of it would publish a state no rule was checked against.
 Writes flush, though. A flush is what turns a duplicate key or a broken
 ``CHECK`` into an error the caller can still do something about, instead of
 one that surfaces at commit time with no context left about which write caused
-it.
+it. Inserts flush inside a savepoint, because "already exists" is only useful
+if the caller still has a transaction to look the existing record up in.
 
 Every write is guarded beyond what the constraints say, and the guard is
 always the same question: does the *stored* state still allow the write the
@@ -17,15 +18,24 @@ caller decided on?
 It has to be asked, because a caller reads an aggregate, asks the entity for
 the next value, and writes that value back -- and the entity was asked about
 the state the caller read. If something moved the record in between, that
-answer is about a state the record has already left. Taking the lock is not
-enough on its own: the second writer waits, then sees the new row, and would
-happily write its stale decision over it. So the stored state is compared with
-the incoming one against the domain's own transition table, and a write that
-would put the record back into a state it left is refused.
+answer is about a state the record has already left.
+
+Two things have to be true for the guard to mean anything, and neither is
+free. The row is read ``FOR UPDATE``, so a second writer queues rather than
+racing. And that read repopulates the row, because a session that loaded the
+record earlier holds it in its identity map, and a lock taken over a cached
+object would have the guard checking the state the caller already knew instead
+of the state in the database.
 
 The transition tables are the domain's, not a copy. A state that becomes
 final, or a move that stops being allowed, tightens these guards without
 anyone having to remember they are here.
+
+What this does *not* catch is a change that keeps the state where it was. Two
+callers editing one draft snapshot both hold ``draft``, so the second is
+allowed and replaces the first's items. Catching that needs an expected
+revision travelling with the write, which the ports do not carry yet; see
+ADR-0005.
 """
 
 from __future__ import annotations
@@ -177,6 +187,29 @@ def _translate(error: IntegrityError, *, subject: str) -> Exception:
     return error
 
 
+def _insert(session: Session, row: object, *, subject: str) -> None:
+    """Insert ``row``, leaving the caller's transaction usable if it collides.
+
+    The savepoint is the point of this. PostgreSQL aborts the whole transaction
+    on a failed statement, and every statement after it fails until a rollback
+    -- so raising ``RecordAlreadyExists`` from a bare flush would name a
+    recoverable condition while leaving nothing to recover with. The caller
+    could not then look the existing record up, which is exactly what it wanted
+    the error for.
+
+    Rolling back to the savepoint undoes only the failed insert. The
+    transaction the composition root owns survives, along with whatever the use
+    case had already written into it.
+    """
+
+    try:
+        with session.begin_nested():
+            session.add(row)
+            session.flush()
+    except IntegrityError as error:
+        raise _translate(error, subject=subject) from error
+
+
 class SqlAlchemyArtifactRepository:
     """Artifacts and the append-only history of where their bytes came from."""
 
@@ -184,11 +217,7 @@ class SqlAlchemyArtifactRepository:
         self._session = session
 
     def add(self, artifact: Artifact) -> None:
-        self._session.add(artifact_row(artifact))
-        try:
-            self._session.flush()
-        except IntegrityError as error:
-            raise _translate(error, subject="artifact") from error
+        _insert(self._session, artifact_row(artifact), subject="artifact")
 
     def get(self, artifact_id: UUID) -> Artifact:
         return read_artifact(self._row(artifact_id))
@@ -217,7 +246,9 @@ class SqlAlchemyArtifactRepository:
         self._session.flush()
 
     def _row(self, artifact_id: UUID, *, for_update: bool = False) -> ArtifactRow:
-        row = self._session.get(ArtifactRow, artifact_id, with_for_update=for_update)
+        row = self._session.get(
+            ArtifactRow, artifact_id, with_for_update=for_update, populate_existing=for_update
+        )
         if row is None:
             raise RecordNotFound(f"no artifact has the id {artifact_id}")
         return row
@@ -254,11 +285,7 @@ class SqlAlchemyExecutionJobRepository:
         self._session = session
 
     def add(self, job: ExecutionJob) -> None:
-        self._session.add(execution_job_row(job))
-        try:
-            self._session.flush()
-        except IntegrityError as error:
-            raise _translate(error, subject="execution job") from error
+        _insert(self._session, execution_job_row(job), subject="execution job")
 
     def get(self, job_id: UUID) -> ExecutionJob:
         return read_execution_job(self._row(job_id))
@@ -293,7 +320,9 @@ class SqlAlchemyExecutionJobRepository:
         return None if row is None else read_execution_job(row)
 
     def _row(self, job_id: UUID, *, for_update: bool = False) -> ExecutionJobRow:
-        row = self._session.get(ExecutionJobRow, job_id, with_for_update=for_update)
+        row = self._session.get(
+            ExecutionJobRow, job_id, with_for_update=for_update, populate_existing=for_update
+        )
         if row is None:
             raise RecordNotFound(f"no execution job has the id {job_id}")
         return row
@@ -306,11 +335,7 @@ class SqlAlchemyRunAttemptRepository:
         self._session = session
 
     def add(self, attempt: RunAttempt) -> None:
-        self._session.add(run_attempt_row(attempt))
-        try:
-            self._session.flush()
-        except IntegrityError as error:
-            raise _translate(error, subject="run attempt") from error
+        _insert(self._session, run_attempt_row(attempt), subject="run attempt")
 
     def get(self, attempt_id: UUID) -> RunAttempt:
         row = self._session.get(RunAttemptRow, attempt_id)
@@ -319,7 +344,9 @@ class SqlAlchemyRunAttemptRepository:
         return read_run_attempt(row)
 
     def complete(self, attempt: RunAttempt) -> None:
-        row = self._session.get(RunAttemptRow, attempt.id, with_for_update=True)
+        row = self._session.get(
+            RunAttemptRow, attempt.id, with_for_update=True, populate_existing=True
+        )
         if row is None:
             raise RecordNotFound(f"no run attempt has the id {attempt.id}")
         _require_writable(
@@ -353,11 +380,7 @@ class SqlAlchemyDatasetSnapshotRepository:
         self._session = session
 
     def add(self, snapshot: DatasetSnapshot) -> None:
-        self._session.add(dataset_snapshot_row(snapshot))
-        try:
-            self._session.flush()
-        except IntegrityError as error:
-            raise _translate(error, subject="dataset snapshot") from error
+        _insert(self._session, dataset_snapshot_row(snapshot), subject="dataset snapshot")
 
     def get(self, snapshot_id: UUID) -> DatasetSnapshot:
         return read_dataset_snapshot(self._row(snapshot_id))
@@ -397,7 +420,12 @@ class SqlAlchemyDatasetSnapshotRepository:
         self._session.flush()
 
     def _row(self, snapshot_id: UUID, *, for_update: bool = False) -> DatasetSnapshotRow:
-        row = self._session.get(DatasetSnapshotRow, snapshot_id, with_for_update=for_update)
+        row = self._session.get(
+            DatasetSnapshotRow,
+            snapshot_id,
+            with_for_update=for_update,
+            populate_existing=for_update,
+        )
         if row is None:
             raise RecordNotFound(f"no dataset snapshot has the id {snapshot_id}")
         return row

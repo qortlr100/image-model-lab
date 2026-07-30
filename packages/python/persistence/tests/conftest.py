@@ -123,6 +123,25 @@ def migrated_engine(server_url: str) -> Iterator[Engine]:
 
 
 @pytest.fixture
+def concurrent_engine(empty_database: str) -> Iterator[Engine]:
+    """A migrated database of its own, for tests that need to commit.
+
+    The shared `session` fixture rolls its transaction back, which is what
+    keeps tests independent -- but it also means nothing is ever committed, and
+    a test about what one transaction sees after another commits cannot use it.
+    These get a database per test instead, and it is dropped afterwards.
+    """
+
+    engine = create_engine(empty_database)
+    try:
+        with engine.begin() as connection:
+            upgrade(connection)
+        yield engine
+    finally:
+        engine.dispose()
+
+
+@pytest.fixture
 def session(migrated_engine: Engine) -> Iterator[Session]:
     """A session on a transaction that is rolled back when the test ends.
 
