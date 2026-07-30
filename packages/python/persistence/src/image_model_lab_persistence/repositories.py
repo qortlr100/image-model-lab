@@ -31,11 +31,26 @@ The transition tables are the domain's, not a copy. A state that becomes
 final, or a move that stops being allowed, tightens these guards without
 anyone having to remember they are here.
 
-What this does *not* catch is a change that keeps the state where it was. Two
-callers editing one draft snapshot both hold ``draft``, so the second is
-allowed and replaces the first's items. Catching that needs an expected
-revision travelling with the write, which the ports do not carry yet; see
-ADR-0005.
+What the guard checks is the *target*: may the row, as it stands now, become
+the state being written? It never learns which state the caller believed it was
+leaving, because a transition returns a new entity and the old state is not
+carried on it. Two things follow, and neither is caught:
+
+* a change that keeps the state where it was. Two callers editing one draft
+  snapshot both hold ``draft``, so the second is allowed and replaces the
+  first's items.
+* a state that cycles back to one the stale target follows from. An artifact
+  read as ``pending`` and verified is written as ``available``; if the row
+  meanwhile went ``available`` and then ``missing``, ``missing -> available``
+  is a legal repair, so the write is accepted and bytes observed absent are
+  marked readable on the strength of a verification that predates the
+  observation. A job is the same shape: ``queued -> leased -> running ->
+  queued`` returns to ``queued``, so a lease claim from an agent that read the
+  earlier ``queued`` is still accepted after the job was released.
+
+Both need the write to say what state it is coming from, which the ports do not
+carry. See ADR-0005; the second is why the artifact and job lifecycles are the
+ones that matter here -- snapshots and attempts have no cycles.
 """
 
 from __future__ import annotations

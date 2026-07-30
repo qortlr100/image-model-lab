@@ -25,9 +25,14 @@ these errors worth catching: on ``RecordAlreadyExists`` a use case can look up
 the record that already holds the identity and acknowledge the duplicate, and
 whatever it had written earlier in the same transaction is still there.
 
-What no write currently detects is a change that leaves the state where it
-was -- two callers editing one draft snapshot's items, for instance. That needs
-an expected revision travelling with the write, which these ports do not carry.
+A write says which state it is going to, never which state it is coming from,
+so two kinds of stale write are not detected. One is a change that leaves the
+state where it was -- two callers editing one draft snapshot's items. The other
+is a state that cycles back: an artifact verified while ``pending`` is written
+as ``available``, and ``missing -> available`` is a legal repair, so the write
+lands even if the bytes were observed absent in between. Both need an expected
+source state or revision travelling with the write, which these ports do not
+carry.
 """
 
 from __future__ import annotations
