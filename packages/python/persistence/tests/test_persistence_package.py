@@ -26,7 +26,12 @@ def test_the_mapping_covers_the_entities_that_have_a_lifecycle() -> None:
 
 
 def test_the_migrations_ship_inside_the_package() -> None:
-    """An image that runs the code can bring its own database up to head."""
+    """Whatever installs this package gets the migrations for its mapping.
+
+    They are inside the package directory rather than beside it so the build
+    includes them in the wheel. No deployment unit installs the package yet;
+    this is about the packaging holding, not about a service using it.
+    """
 
     assert ALEMBIC_CONFIG_PATH.is_file()
     versions = ALEMBIC_CONFIG_PATH.parent / "migrations" / "versions"

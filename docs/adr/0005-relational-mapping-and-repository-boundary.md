@@ -41,7 +41,7 @@ lock을 잡은 read는 identity map을 갱신한다(`populate_existing`). 같은
 
 전이표는 복사하지 않고 domain의 것을 그대로 참조한다. 어떤 state가 종료 상태가 되거나 허용되던 전이가 사라지면 이 guard가 자동으로 좁아진다.
 
-**모든 schema 변경은 Alembic revision을 갖고 downgrade를 갖는다.** migration은 package 안에 있어 service image가 자기 schema를 올릴 수 있다. baseline은 `0001_baseline_schema.py`이며 upgrade/downgrade/재upgrade와 mapping 대조를 disposable database에서 검사한다.
+**모든 schema 변경은 Alembic revision을 갖고 downgrade를 갖는다.** migration은 package 디렉터리 안에 두어 wheel에 포함되므로, 이 package를 설치하는 배포 단위가 자기 migration을 함께 가져간다. 현재 그런 배포 단위는 없다. API/Worker image는 `uv sync --package`로 해당 service의 dependency closure만 설치하고 어느 service도 persistence에 의존하지 않으므로, 지금 migration을 실행하는 경로는 저장소 workspace의 `just migrate`뿐이다. service가 시작 시점에 schema를 올리는 것은 API가 persistence를 실제로 사용하는 slice에서 image dependency와 함께 결정한다. baseline은 `0001_baseline_schema.py`이며 upgrade/downgrade/재upgrade와 mapping 대조를 disposable database에서 검사한다.
 
 ## Consequences
 

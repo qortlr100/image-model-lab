@@ -156,7 +156,9 @@ just migrate downgrade base
 just db-down
 ```
 
-`IMAGE_MODEL_LAB_DATABASE_URL`은 모든 service와 migration runner가 읽는 유일한 설정 지점이며, PostgreSQL 이외의 backend는 거부됩니다. Alembic 설정과 revision은 package 안에 있으므로 service image가 자신의 schema를 올릴 수 있습니다.
+`IMAGE_MODEL_LAB_DATABASE_URL`은 모든 service와 migration runner가 읽는 유일한 설정 지점이며, PostgreSQL 이외의 backend는 거부됩니다.
+
+Alembic 설정과 revision은 package 디렉터리 안에 있어 wheel에 포함됩니다. 따라서 이 package를 설치하는 배포 단위는 자기 migration을 함께 가져갑니다. **단, 현재 어떤 service도 `image-model-lab-persistence`에 의존하지 않으므로 API/Worker image에는 Alembic도 migration도 없습니다.** 지금 migration을 실행하는 방법은 위의 `just migrate`, 즉 저장소 workspace뿐입니다. service가 시작 시점에 자기 schema를 올리는 경로는 아직 구현되지 않았으며, API가 persistence를 실제로 사용하게 되는 slice에서 image dependency와 함께 정합니다.
 
 ### Persistence integration test
 

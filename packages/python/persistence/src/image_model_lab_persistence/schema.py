@@ -5,11 +5,14 @@ The command line is the ordinary way in::
     just migrate upgrade head
     just migrate downgrade base
 
-This module is the same thing for callers that already hold a connection: a
-test that built a disposable database, or a service bringing its own schema up
-at startup. Both run the revisions in ``migrations/versions``, so there is one
-description of the schema and no second path that creates tables from the
-mapping directly.
+This module is the same thing for a caller that already holds a connection,
+which today means the tests: they build a disposable database and bring it up
+without going through the environment. It runs the revisions in
+``migrations/versions`` like the command line does, so there is one description
+of the schema and no second path that creates tables from the mapping directly.
+
+A service bringing its own schema up at startup would use this too, but none
+does yet -- no service image installs this package.
 
 :func:`pending_changes` is the check worth running after a mapping change.
 ``METADATA`` describes what the code reads; the migrations describe what a
