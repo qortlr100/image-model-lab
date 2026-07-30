@@ -76,12 +76,14 @@
 - subprocess sandbox, redaction, structured events
 - local scratch materialization과 atomic publish
 - interrupted attempt recovery
+- aggregate optimistic concurrency: version column과 expected revision을 싣는 repository port
 
 완료 기준:
 
 - Agent 강제 종료 후 lease가 회수되고 새 attempt가 실행된다.
 - 중복 완료 보고가 결과를 두 번 current로 만들지 않는다.
 - API와 Agent가 서로 다른 release version일 때 protocol version 오류가 명확하다.
+- state를 유지하는 동시 편집이 조용히 덮어써지지 않는다. M1-03의 write guard는 domain 전이표를 대조하므로 `draft → draft`처럼 state가 그대로인 변경은 잡지 못하며, 근거와 범위는 [ADR-0005](adr/0005-relational-mapping-and-repository-boundary.md)에 있다.
 
 ## Phase 5 — Anima LoRA training 관리
 
