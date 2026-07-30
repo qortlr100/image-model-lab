@@ -81,6 +81,8 @@
 
 ### M1-03 — PostgreSQL baseline
 
+상태: 구현 완료
+
 범위:
 
 - SQLAlchemy mapping, repository ports/adapter

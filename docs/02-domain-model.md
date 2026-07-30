@@ -109,6 +109,8 @@ Adapter는 engine 내부 Python 객체에 의존하지 않는다. 외부 checkou
 
 `Artifact`, `ExecutionJob`, `RunAttempt`, `DatasetSnapshot`의 아래 전이표는 `packages/python/domain`에 framework 없이 구현돼 있다. 각 entity는 불변이며 전이는 새 값을 돌려주고, 표에 없는 전이는 예외로 거부된다. 나머지 모델의 생명주기는 아직 문서로만 있다.
 
+같은 네 entity는 `packages/python/persistence`에 저장돼 있다. 상태 column의 허용 값은 아래 전이표의 상태 집합에서 생성한 CHECK 제약이고, "완료된 attempt는 다시 쓰이지 않는다", "sealed snapshot은 변경되지 않는다", "provenance는 append만 가능하다"는 repository의 write 경로에서도 거부된다. 매핑 방식과 근거는 [ADR-0005](adr/0005-relational-mapping-and-repository-boundary.md)에 있다.
+
 ### Artifact
 
 `pending → available`, `available → missing`, `missing → available`, 그리고 종료되지 않은 어느 상태에서든 `quarantined`.
