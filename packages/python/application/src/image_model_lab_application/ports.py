@@ -33,10 +33,14 @@ the stale target legitimately follows from -- an artifact verified while
 repair, so without the source state a pre-``missing`` verification would mark
 absent bytes readable. Pass the state you read, not the state you computed.
 
-One stale write is still not detected: a change that leaves the state where it
-was, such as two callers editing one draft snapshot's items. Both hold
-``draft``, so the expected state matches for each. Catching that needs a
-revision rather than a state, which these ports do not carry; see ADR-0005.
+An expected state says only that the value the caller read is still the value in
+the row, so a stale write survives wherever the row is back at that value --
+whether it never moved (two callers editing one draft snapshot both read
+``draft``) or moved and came all the way back (``queued -> leased -> running ->
+queued``). Every state reachable from itself has that hole: ``available`` and
+``missing`` for artifacts, ``queued``, ``leased`` and ``running`` for jobs.
+Closing those needs a revision rather than a state, which these ports do not
+carry; see ADR-0005.
 """
 
 from __future__ import annotations
@@ -131,11 +135,16 @@ class ExecutionJobRepository(Protocol):
     def update(self, job: ExecutionJob, *, expected_state: ExecutionJobState) -> None:
         """Store a job's new state.
 
-        ``expected_state`` is the state the job was read in, and the lease
-        protocol needs it: ``queued -> leased -> running -> queued`` returns to
-        ``queued`` when a lease is lost, so a claim from an agent that read the
-        earlier ``queued`` would otherwise still be accepted and two agents
-        would each believe they hold the lease.
+        ``expected_state`` is the state the job was read in. It stops two
+        agents that both read one ``queued`` job from both claiming it: the
+        second arrives to find ``leased``.
+
+        It does not make a claim handler safe on its own. A job that has gone
+        ``queued -> leased -> running -> queued`` is back at the value the agent
+        read, so a stale claim still lands -- that needs a revision, and
+        ``test_a_completed_cycle_back_to_the_same_state_is_not_caught`` in the
+        persistence package pins the boundary. Do not build claim logic that
+        relies on protection this port does not give.
 
         Raises:
             RecordNotFound: if no job has that id.
